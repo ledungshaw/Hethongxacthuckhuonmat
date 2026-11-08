@@ -1,0 +1,58 @@
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, 'Segoe UI', Arial, sans-serif; }
+body { background: #f0f2f5; color: #333; min-height: 100vh; }
+.container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white; padding: 20px 30px; border-radius: 12px; margin-bottom: 20px;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 15px; box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+}
+header h1 { font-size: 24px; font-weight: 700; }
+.header-info { display: flex; gap: 20px; align-items: center; font-size: 14px; }
+.header-info b { color: #ffd700; }
+.btn-sync {
+    background: white; color: #667eea; border: none; padding: 8px 20px;
+    border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s;
+}
+.btn-sync:hover { background: #ffd700; color: #333; transform: scale(1.05); }
+.main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
+
+/* ⭐ FIX ZOOM KHUNG HÌNH TRÊN WEB */
+.video-panel { 
+    background: black; 
+    border-radius: 12px; 
+    overflow: hidden; 
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15); 
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.video-panel img { 
+    width: 100%; 
+    height: auto; 
+    display: block; 
+    object-fit: contain; /* Giữ nguyên khung hình không bị méo */
+    aspect-ratio: 4 / 3; /* Ép đúng tỉ lệ 4:3 của Camera */
+}
+
+.status-panel { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); }
+.status-panel h2 { font-size: 18px; margin-bottom: 20px; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px; }
+.status-card {
+    background: #f8f9ff; border-radius: 12px; padding: 20px; text-align: center;
+    margin-bottom: 20px; border-left: 4px solid #667eea; transition: all 0.3s;
+}
+.status-card.gate_opened { background: #e8f5e9; border-left-color: #4caf50; }
+.status-card.spoof_detected { background: #ffebee; border-left-color: #f44336; }
+.status-card.unknown { background: #fff3e0; border-left-color: #ff9800; }
+.status-icon { font-size: 42px; margin-bottom: 10px; font-weight: bold; }
+.status-message { font-size: 16px; font-weight: 600; color: #333; }
+.info-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+.info-row .label { color: #666; }
+.info-row .value { color: #333; font-weight: 600; }
+.history-panel { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08); }
+.history-panel h2 { font-size: 18px; margin-bottom: 20px; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+table th { background: #f0f4ff; color: #333; padding: 12px; text-align: left; font-weight: 600; }
+table td { padding: 12px; border-bottom: 1px solid #eee; }
+table tr:hover { background: #f8f9ff; }
+@media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }

@@ -1,0 +1,636 @@
+{% extends "base.html" %}
+
+{% block title %}Check-in tại quầy{% endblock %}
+
+{% block extra_css %}
+<style>
+.checkin-container {
+    max-width: 850px;
+    margin: 0 auto;
+    background: white;
+    padding: 35px;
+    border-radius: 20px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+}
+.checkin-container h2 { color: #1a1a2e; font-size: 28px; margin-bottom: 5px; }
+.checkin-container .subtitle { color: #888; font-size: 15px; margin-bottom: 25px; }
+.btn-back {
+    display: inline-block;
+    margin-bottom: 15px;
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 600;
+}
+.btn-back:hover { text-decoration: underline; }
+
+/* Flight selector */
+.flight-selector {
+    background: #f8f9ff;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+.flight-selector h4 { color: #1a1a2e; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.flight-selector h4 .badge {
+    background: #667eea;
+    color: white;
+    font-size: 11px;
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+}
+.flight-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    max-height: 350px;
+    overflow-y: auto;
+}
+.flight-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.flight-item:hover { border-color: #667eea; background: #f0f4ff; }
+.flight-item.selected { border-color: #667eea; background: #eef2ff; box-shadow: 0 0 0 3px rgba(102,126,234,0.2); }
+.flight-item .flight-info { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
+.flight-item .flight-code { font-weight: 700; color: #1a1a2e; font-size: 16px; min-width: 70px; }
+.flight-item .flight-route { color: #555; font-size: 14px; }
+.flight-item .flight-date { color: #764ba2; font-weight: 600; font-size: 13px; }
+.flight-item .flight-time { color: #667eea; font-weight: 600; font-size: 14px; }
+.flight-item .flight-status { font-size: 12px; padding: 3px 12px; border-radius: 20px; font-weight: 600; }
+.flight-item .flight-status.scheduled { background: #dbeafe; color: #1e40af; }
+.flight-item .flight-status.boarding { background: #fef3c7; color: #92400e; }
+.flight-item .flight-status.delayed { background: #fee2e2; color: #991b1b; }
+.flight-item .flight-status.arrived { background: #dcfce7; color: #166534; }
+.flight-item .flight-status.cancelled { background: #f3f4f6; color: #6b7280; }
+.flight-item .flight-status.departed { background: #8b5cf6; color: white; }
+.flight-item .flight-gate { color: #22c55e; font-weight: 600; font-size: 13px; }
+.flight-empty { text-align: center; padding: 20px; color: #888; }
+.selected-flight-info {
+    background: #eef2ff;
+    border: 2px solid #667eea;
+    border-radius: 10px;
+    padding: 15px;
+    margin-top: 15px;
+    display: none;
+}
+.selected-flight-info.show { display: block; }
+.selected-flight-info .label { font-size: 12px; color: #888; text-transform: uppercase; font-weight: 600; }
+.selected-flight-info .value { font-size: 18px; font-weight: 700; color: #1a1a2e; }
+
+.camera-section {
+    border: 3px dashed #667eea;
+    border-radius: 15px;
+    padding: 20px;
+    margin: 20px 0;
+    text-align: center;
+    background: #f8f9ff;
+    position: relative;
+}
+.camera-section video {
+    width: 100%;
+    max-width: 450px;
+    border-radius: 12px;
+    background: #000;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    transition: opacity 0.1s;
+}
+.capture-progress { margin: 15px 0; display: none; }
+.capture-progress.show { display: block; }
+.progress-bar {
+    width: 100%;
+    height: 30px;
+    background: #e5e7eb;
+    border-radius: 15px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    border-radius: 15px;
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+}
+.capture-status { font-size: 16px; color: #667eea; font-weight: 600; margin-top: 5px; }
+.countdown-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 120px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 0 0 30px rgba(102,126,234,0.9);
+    display: none;
+    z-index: 10;
+    pointer-events: none;
+}
+.countdown-overlay.show { display: block; animation: countdownPulse 0.8s ease; }
+@keyframes countdownPulse {
+    0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+    50% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+.photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 10px;
+    margin: 15px 0;
+}
+.photo-grid img {
+    width: 100%;
+    aspect-ratio: 1/1;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 3px solid #22c55e;
+    animation: photoAppear 0.3s ease;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+.photo-grid img:hover { border-color: #ef4444; transform: scale(1.05); }
+@keyframes photoAppear {
+    from { transform: scale(0); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}
+.btn-group { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 15px 0; }
+.btn { padding: 12px 30px; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.3s; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; }
+.btn:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0,0,0,0.15); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+.btn-primary { background: #667eea; color: white; }
+.btn-success { background: #22c55e; color: white; }
+.btn-danger { background: #ef4444; color: white; }
+.btn-secondary { background: #9ca3af; color: white; }
+.btn-submit { width: 100%; padding: 16px; font-size: 20px; }
+.result-box { margin-top: 25px; padding: 25px; border-radius: 12px; display: none; }
+.result-box.success { display: block; background: #dcfce7; border: 2px solid #86efac; color: #166534; }
+.result-box.error { display: block; background: #fee2e2; border: 2px solid #fca5a5; color: #991b1b; }
+.form-group { margin-bottom: 18px; }
+.form-group label { display: block; font-weight: 600; color: #374151; font-size: 14px; margin-bottom: 6px; }
+.form-group input, .form-group select {
+    width: 100%;
+    padding: 12px 16px;
+    border: 2px solid #e5e7eb;
+    border-radius: 10px;
+    font-size: 15px;
+    transition: all 0.3s;
+    background: white;
+}
+.form-group input:focus, .form-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 4px rgba(102,126,234,0.1);
+}
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.search-box { background: #f8f9ff; padding: 20px; border-radius: 12px; margin-bottom: 25px; border: 1px solid #e5e7eb; }
+.search-box h4 { color: #1a1a2e; margin-bottom: 15px; }
+.search-box .search-row { display: flex; gap: 15px; flex-wrap: wrap; }
+.search-box .search-row .form-group { flex: 1; min-width: 150px; margin-bottom: 0; }
+
+@media (max-width: 768px) {
+    .row { grid-template-columns: 1fr; }
+    .search-box .search-row { flex-direction: column; }
+    .search-box .search-row .form-group { flex: 1; }
+    .flight-item { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .selected-flight-info > div { grid-template-columns: 1fr !important; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="checkin-container">
+    <a href="/admin/dashboard" class="btn-back">⬅️ Quay lại Dashboard</a>
+    
+    <h2>✈️ Check-in tại quầy</h2>
+    <p class="subtitle">Nhập thông tin hành khách, chọn chuyến bay từ FIDS, sau đó chụp <strong>10 ảnh</strong>.</p>
+    
+    <div class="search-box">
+        <h4>🔍 Tìm hành khách</h4>
+        <div class="search-row">
+            <div class="form-group"><label>CCCD/CMND</label><input type="text" id="search_cccd" placeholder="012345678901"></div>
+            <div class="form-group"><label>Mã PNR</label><input type="text" id="search_pnr" placeholder="ABC123"></div>
+            <div style="display:flex; gap:10px; align-items:flex-end;">
+                <button class="btn btn-primary" onclick="searchPassenger()">🔍 Tìm</button>
+                <button class="btn btn-secondary" onclick="clearSearch()">🗑️ Xóa</button>
+            </div>
+        </div>
+    </div>
+    
+    <form id="checkinForm">
+        <div class="row">
+            <div class="form-group"><label>Họ tên *</label><input type="text" id="name" required placeholder="Nguyễn Văn A"></div>
+            <div class="form-group"><label>CCCD/CMND *</label><input type="text" id="cccd" required placeholder="012345678901"></div>
+        </div>
+        <div class="row">
+            <div class="form-group"><label>Số điện thoại *</label><input type="tel" id="phone" required placeholder="0987654321"></div>
+            <div class="form-group"><label>Email</label><input type="email" id="email" placeholder="example@gmail.com"></div>
+        </div>
+        
+        <!-- ========== CHỌN CHUYẾN BAY TỪ FIDS ========== -->
+        <div class="flight-selector">
+            <h4>🛫 Chọn chuyến bay <span class="badge">Từ bảng FIDS</span></h4>
+            <div class="flight-list" id="flightList">
+                <div class="flight-empty">Đang tải danh sách chuyến bay...</div>
+            </div>
+            
+            <div class="selected-flight-info" id="selectedFlightInfo">
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap:15px;">
+                    <div>
+                        <div class="label">Mã chuyến bay</div>
+                        <div class="value" id="selFlightCode">---</div>
+                    </div>
+                    <div>
+                        <div class="label">Hành trình</div>
+                        <div class="value" id="selFlightRoute">---</div>
+                    </div>
+                    <div>
+                        <div class="label">Ngày bay</div>
+                        <div class="value" id="selFlightDate">---</div>
+                    </div>
+                    <div>
+                        <div class="label">Giờ dự kiến</div>
+                        <div class="value" id="selFlightTime">---</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <input type="hidden" id="selected_fids_id" value="">
+        <input type="hidden" id="flight_code" value="">
+        <input type="hidden" id="flight_date" value="">
+        <input type="hidden" id="flight_time" value="">
+        
+        <div class="row">
+            <div class="form-group"><label>Số kiện hành lý</label><input type="number" id="luggage_count" value="1" min="0"></div>
+            <div class="form-group"><label>Cân nặng hành lý (kg)</label><input type="number" id="luggage_weight" value="20" step="0.5"></div>
+        </div>
+        
+        <div class="camera-section">
+            <h3>📸 Chụp ảnh khuôn mặt (<span id="photoCount">0</span>/10)</h3>
+            <p style="color:#666; font-size:13px;">Bấm nút bên dưới để tự động chụp <strong>10 ảnh</strong></p>
+            
+            <video id="video" autoplay playsinline></video>
+            <canvas id="previewCanvas" style="display:none;"></canvas>
+            
+            <div class="countdown-overlay" id="countdown">3</div>
+            
+            <div class="capture-progress" id="captureProgress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%">0/10</div>
+                </div>
+                <div class="capture-status" id="captureStatus">Đang chụp...</div>
+            </div>
+            
+            <div class="btn-group">
+                <button type="button" class="btn btn-primary" id="btnAutoCapture" onclick="startAutoCapture()">
+                    📷 Bắt đầu chụp (Tự động 10 ảnh)
+                </button>
+                <button type="button" class="btn btn-danger" onclick="clearPhotos()">🗑️ Xóa hết</button>
+            </div>
+            
+            <div id="photoGrid" class="photo-grid"></div>
+        </div>
+        
+        <button type="submit" class="btn btn-success btn-submit" id="submitBtn" disabled>✅ Hoàn tất Check-in</button>
+    </form>
+    
+    <div id="resultBox" class="result-box"></div>
+</div>
+
+<script>
+const video = document.getElementById('video');
+const canvas = document.getElementById('previewCanvas');
+const ctx = canvas.getContext('2d');
+const photoGrid = document.getElementById('photoGrid');
+const progressFill = document.getElementById('progressFill');
+const captureProgress = document.getElementById('captureProgress');
+const captureStatus = document.getElementById('captureStatus');
+const countdownEl = document.getElementById('countdown');
+const btnAutoCapture = document.getElementById('btnAutoCapture');
+
+let capturedPhotos = [];
+let stream = null;
+let isCapturing = false;
+let selectedFlight = null;
+
+const TOTAL_PHOTOS = 10;
+const COUNTDOWN_SECONDS = 3;
+const CAPTURE_INTERVAL = 400;
+
+// ========== UTILITY: FORMAT DATE DD/MM/YYYY ==========
+function formatDate(dateStr) {
+    if (!dateStr) return '--';
+    try {
+        var parts = dateStr.split('-');
+        if (parts.length === 3) {
+            return parts[2] + '/' + parts[1] + '/' + parts[0];
+        }
+        var d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.getDate().toString().padStart(2, '0') + '/' +
+               (d.getMonth() + 1).toString().padStart(2, '0') + '/' +
+               d.getFullYear();
+    } catch (e) {
+        return dateStr;
+    }
+}
+
+async function loadFidsForSelection() {
+    try {
+        const response = await fetch('/api/fids');
+        const flights = await response.json();
+        const container = document.getElementById('flightList');
+        
+        if (!flights || flights.length === 0) {
+            container.innerHTML = '<div class="flight-empty">Chưa có chuyến bay nào trong hệ thống</div>';
+            return;
+        }
+        
+        let html = '';
+        flights.forEach(function(f) {
+            const statusClass = (f.status || 'scheduled').toLowerCase();
+            const flightDate = f.flight_date ? formatDate(f.flight_date) : '--';
+            html += `
+                <div class="flight-item" onclick="selectFlight(${JSON.stringify(f).replace(/"/g, '&quot;')})">
+                    <div class="flight-info">
+                        <span class="flight-code">${f.flight_code || '--'}</span>
+                        <span class="flight-route">${f.origin || '--'} → ${f.destination || '--'}</span>
+                        <span class="flight-date">📅 ${flightDate}</span>
+                        <span class="flight-time">🕐 ${f.scheduled_time || '--'}</span>
+                        <span class="flight-gate">🚪 ${f.gate || '--'}</span>
+                    </div>
+                    <span class="flight-status ${statusClass}">${f.status || 'Scheduled'}</span>
+                </div>
+            `;
+        });
+        container.innerHTML = html;
+    } catch (e) {
+        console.error('Load FIDS error:', e);
+        document.getElementById('flightList').innerHTML = '<div class="flight-empty" style="color:red;">Lỗi tải danh sách chuyến bay</div>';
+    }
+}
+
+function selectFlight(flight) {
+    selectedFlight = flight;
+    
+    document.querySelectorAll('.flight-item').forEach(function(el) {
+        el.classList.remove('selected');
+    });
+    if (event && event.currentTarget) {
+        event.currentTarget.classList.add('selected');
+    }
+    
+    document.getElementById('selected_fids_id').value = flight.id || '';
+    document.getElementById('flight_code').value = flight.flight_code || '';
+    document.getElementById('flight_date').value = flight.flight_date || new Date().toISOString().split('T')[0];
+    document.getElementById('flight_time').value = flight.scheduled_time || '';
+    
+    const infoBox = document.getElementById('selectedFlightInfo');
+    infoBox.classList.add('show');
+    document.getElementById('selFlightCode').textContent = flight.flight_code || '---';
+    document.getElementById('selFlightRoute').textContent = (flight.origin || '--') + ' → ' + (flight.destination || '--');
+    document.getElementById('selFlightDate').textContent = flight.flight_date ? formatDate(flight.flight_date) : '---';
+    document.getElementById('selFlightTime').textContent = flight.scheduled_time || '---';
+}
+
+async function startCamera() {
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        video.srcObject = stream;
+        await video.play();
+    } catch (err) {
+        alert('❌ Không thể mở camera: ' + err.message);
+    }
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function startAutoCapture() {
+    if (isCapturing) return;
+    if (!stream) {
+        alert('Camera chưa sẵn sàng!');
+        return;
+    }
+    
+    capturedPhotos = [];
+    photoGrid.innerHTML = '';
+    isCapturing = true;
+    btnAutoCapture.disabled = true;
+    btnAutoCapture.textContent = '⏳ Đang chụp...';
+    
+    captureProgress.classList.add('show');
+    captureStatus.style.color = '#667eea';
+    updateProgress(0);
+    
+    for (let i = COUNTDOWN_SECONDS; i > 0; i--) {
+        countdownEl.textContent = i;
+        countdownEl.classList.add('show');
+        await sleep(800);
+        countdownEl.classList.remove('show');
+        await sleep(200);
+    }
+    
+    captureStatus.textContent = '📸 Đang chụp... Giữ yên khuôn mặt';
+    
+    for (let i = 0; i < TOTAL_PHOTOS; i++) {
+        captureStatus.textContent = `📸 Đang chụp ảnh ${i + 1}/${TOTAL_PHOTOS}...`;
+        
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+        capturedPhotos.push(dataUrl);
+        
+        const img = document.createElement('img');
+        img.src = dataUrl;
+        img.title = `Ảnh ${i + 1} (Click để xóa)`;
+        img.onclick = function() {
+            if (confirm('Xóa ảnh này?')) {
+                const idx = capturedPhotos.indexOf(dataUrl);
+                if (idx > -1) {
+                    capturedPhotos.splice(idx, 1);
+                    this.remove();
+                    updatePhotoCount();
+                }
+            }
+        };
+        photoGrid.appendChild(img);
+        
+        updateProgress(i + 1);
+        
+        video.style.opacity = '0.3';
+        await sleep(50);
+        video.style.opacity = '1';
+        
+        if (i < TOTAL_PHOTOS - 1) {
+            await sleep(CAPTURE_INTERVAL);
+        }
+    }
+    
+    captureStatus.textContent = '✅ Đã chụp đủ 10 ảnh!';
+    captureStatus.style.color = '#22c55e';
+    
+    isCapturing = false;
+    btnAutoCapture.disabled = false;
+    btnAutoCapture.textContent = '📷 Chụp lại (Tự động 10 ảnh)';
+    
+    updatePhotoCount();
+    
+    setTimeout(() => {
+        alert(`✅ Đã chụp đủ ${TOTAL_PHOTOS} ảnh!\n\nBây giờ bạn có thể bấm "Hoàn tất Check-in".`);
+    }, 300);
+}
+
+function updateProgress(current) {
+    const percent = (current / TOTAL_PHOTOS) * 100;
+    progressFill.style.width = percent + '%';
+    progressFill.textContent = `${current}/${TOTAL_PHOTOS}`;
+}
+
+function updatePhotoCount() {
+    const count = capturedPhotos.length;
+    document.getElementById('photoCount').textContent = count;
+    const submitBtn = document.getElementById('submitBtn');
+    if (count >= TOTAL_PHOTOS) {
+        submitBtn.disabled = false;
+        submitBtn.style.opacity = '1';
+    } else {
+        submitBtn.disabled = true;
+        submitBtn.style.opacity = '0.5';
+    }
+}
+
+function clearPhotos() {
+    if (capturedPhotos.length === 0) return;
+    if (!confirm('Xóa tất cả ảnh đã chụp?')) return;
+    
+    capturedPhotos = [];
+    photoGrid.innerHTML = '';
+    captureProgress.classList.remove('show');
+    captureStatus.textContent = 'Đang chụp...';
+    captureStatus.style.color = '#667eea';
+    updatePhotoCount();
+    
+    btnAutoCapture.textContent = '📷 Bắt đầu chụp (Tự động 10 ảnh)';
+}
+
+function searchPassenger() {
+    const cccd = document.getElementById('search_cccd').value;
+    const pnr = document.getElementById('search_pnr').value;
+    if (!cccd && !pnr) {
+        alert('Vui lòng nhập CCCD hoặc mã PNR');
+        return;
+    }
+    alert('🔍 Đang tìm kiếm... (Chức năng đang phát triển)');
+}
+
+function clearSearch() {
+    document.getElementById('search_cccd').value = '';
+    document.getElementById('search_pnr').value = '';
+}
+
+document.getElementById('checkinForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    if (!selectedFlight) {
+        alert('❌ Vui lòng chọn chuyến bay từ danh sách FIDS!');
+        return;
+    }
+    
+    if (capturedPhotos.length < TOTAL_PHOTOS) {
+        alert(`❌ Cần đủ ${TOTAL_PHOTOS} ảnh khuôn mặt! Hiện có ${capturedPhotos.length} ảnh.`);
+        return;
+    }
+    
+    const submitBtn = document.getElementById('submitBtn');
+    const resultBox = document.getElementById('resultBox');
+    
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Đang xử lý...';
+    resultBox.className = 'result-box';
+    resultBox.style.display = 'none';
+    
+    try {
+        const formData = new FormData();
+        formData.append('name', document.getElementById('name').value);
+        formData.append('cccd', document.getElementById('cccd').value);
+        formData.append('phone', document.getElementById('phone').value);
+        formData.append('email', document.getElementById('email').value);
+        formData.append('fids_id', document.getElementById('selected_fids_id').value);
+        formData.append('flight_code', document.getElementById('flight_code').value);
+        formData.append('flight_date', document.getElementById('flight_date').value);
+        formData.append('flight_time', document.getElementById('flight_time').value);
+        formData.append('luggage_count', document.getElementById('luggage_count').value);
+        formData.append('luggage_weight', document.getElementById('luggage_weight').value);
+        
+        for (let i = 0; i < capturedPhotos.length; i++) {
+            const base64Data = capturedPhotos[i];
+            const byteString = atob(base64Data.split(',')[1]);
+            const mimeString = base64Data.split(',')[0].split(':')[1].split(';')[0];
+            const ab = new ArrayBuffer(byteString.length);
+            const ia = new Uint8Array(ab);
+            for (let j = 0; j < byteString.length; j++) {
+                ia[j] = byteString.charCodeAt(j);
+            }
+            const blob = new Blob([ab], { type: mimeString });
+            formData.append('face_images', blob, `face_${i+1}.jpg`);
+        }
+        
+        const response = await fetch('/api/checkin', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        resultBox.style.display = 'block';
+        
+        if (response.ok && data.success) {
+            resultBox.className = 'result-box success';
+            resultBox.innerHTML = `
+                <h3>✅ ${data.message}</h3>
+                <p><strong>Hành khách:</strong> ${data.passenger?.name}</p>
+                <p><strong>Chuyến bay:</strong> ${selectedFlight.flight_code} (${selectedFlight.origin} → ${selectedFlight.destination})</p>
+                <p><strong>Ngày bay:</strong> ${selectedFlight.flight_date ? formatDate(selectedFlight.flight_date) : '--'} - <strong>Giờ:</strong> ${selectedFlight.scheduled_time || '--'}</p>
+                <p>📧 QR đã gửi đến email: ${data.passenger?.email}</p>
+                <p>Số ảnh: <strong>${capturedPhotos.length}</strong></p>
+                <button class="btn btn-primary" onclick="location.reload()" style="margin-top:15px;">
+                    🔄 Check-in khác
+                </button>
+            `;
+        } else {
+            resultBox.className = 'result-box error';
+            resultBox.innerHTML = `<h3>❌ Lỗi</h3><p>${data.error || 'Có lỗi xảy ra!'}</p>`;
+        }
+    } catch (err) {
+        resultBox.className = 'result-box error';
+        resultBox.style.display = 'block';
+        resultBox.innerHTML = `<h3>❌ Lỗi kết nối</h3><p>${err.message}</p>`;
+    }
+    
+    submitBtn.disabled = false;
+    submitBtn.textContent = '✅ Hoàn tất Check-in';
+});
+
+loadFidsForSelection();
+startCamera();
+</script>
+{% endblock %}

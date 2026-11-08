@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Node 2 - Security Gate</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚪 NODE 2 - SECURITY GATE</h1>
+            <div class="header-info">
+                <span>FPS: <b id="fps">0</b></span>
+                <span>Faces: <b id="faces">0</b></span>
+            </div>
+        </header>
+
+        <div class="main-grid">
+            <div class="video-panel">
+                <img id="video" src="/video_feed" alt="Camera Stream">
+            </div>
+
+            <div class="status-panel">
+                <h2>📊 Kết quả nhận diện</h2>
+                <div class="status-card" id="status-card">
+                    <div class="status-icon" id="status-icon">...</div>
+                    <div class="status-message" id="status-message">Đang chờ...</div>
+                </div>
+                <div class="info-row"><span class="label">👤 Họ tên:</span><span class="value" id="user-name">-</span></div>
+                <div class="info-row"><span class="label">📊 Similarity:</span><span class="value" id="similarity">0.0000</span></div>
+                <div class="info-row"><span class="label">🎭 Liveness:</span><span class="value" id="liveness">-</span></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        async function pollResult() {
+            try {
+                const res = await fetch('/api/current_result');
+                const result = await res.json();
+                
+                // ⭐ CẬP NHẬT FPS VÀ FACES LÊN GIAO DIỆN
+                document.getElementById('fps').textContent = result.fps || 0;
+                document.getElementById('faces').textContent = result.faces || 0;
+
+                document.getElementById('user-name').textContent = result.user_name || '-';
+                document.getElementById('similarity').textContent = (result.similarity || 0).toFixed(4);
+                
+                let liveText = '-';
+                let liveColor = '#333';
+                if (result.is_live === true) {
+                    liveText = '✅ THẬT';
+                    liveColor = '#28a745';
+                } else if (result.is_live === false) {
+                    liveText = '⚠️ GIẢ';
+                    liveColor = '#dc3545';
+                }
+                const liveEl = document.getElementById('liveness');
+                liveEl.textContent = liveText;
+                liveEl.style.color = liveColor;
+                
+                const statusCard = document.getElementById('status-card');
+                const statusIcon = document.getElementById('status-icon');
+                const statusMsg = document.getElementById('status-message');
+                
+                if (result.status === 'confirmed') {
+                    statusCard.style.backgroundColor = '#e8f5e9';
+                    statusIcon.textContent = '✅';
+                    statusMsg.textContent = 'XÁC THỰC THÀNH CÔNG';
+                } else if (result.status === 'spoof_detected') {
+                    statusCard.style.backgroundColor = '#ffebee';
+                    statusIcon.textContent = '⚠️';
+                    statusMsg.textContent = 'PHÁT HIỆN ẢNH GIẢ - TỪ CHỐI';
+                } else if (result.status === 'unknown') {
+                    statusCard.style.backgroundColor = '#fff3e0';
+                    statusIcon.textContent = '❓';
+                    statusMsg.textContent = 'KHÔNG XÁC ĐỊNH';
+                } else {
+                    statusCard.style.backgroundColor = '#f8f9ff';
+                    statusIcon.textContent = '⏸️';
+                    statusMsg.textContent = 'ĐANG CHỜ...';
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        setInterval(pollResult, 1000);
+        pollResult();
+    </script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Hệ thống Check-in{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <span class="logo">✈️</span>
+            <span class="title">Hệ thống Check-in Sân bay</span>
+        </div>
+        <div class="header-right">
+            {% if session.username %}
+                <span>👋 {{ session.username }}</span>
+                {% if session.role == 'admin' %}
+                    <span class="badge-admin">🔑 Admin</span>
+                {% endif %}
+                <a href="/logout" class="btn-logout">Đăng xuất</a>
+            {% endif %}
+        </div>
+    </header>
+    
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <footer class="footer">
+        <p>© 2026 Hệ thống xác thực hành khách - Đồ án tốt nghiệp</p>
+    </footer>
+    
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

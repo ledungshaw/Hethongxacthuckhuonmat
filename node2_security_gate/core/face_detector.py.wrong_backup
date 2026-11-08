@@ -1,0 +1,158 @@
+"""
+Liveness Detector - Challenge chop mat bang OpenCV Haar Eye.
+- Su dung LOCK khi doc camera (tranh tranh chap)
+- Frame skip de nhe hon
+"""
+import cv2
+import numpy as np
+import time
+import threading
+from config import Config
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class LivenessDetector:
+    def __init__(self, min_eye_size=(20, 20)):
+        self.min_eye_size = min_eye_size
+        self.available = False
+        self.camera_lock = threading.Lock()  # ⭐ Lock rieng
+
+        try:
+            eye_path = cv2.data.haarcascades + 'haarcascade_eye.xml'
+            self.eye_cascade = cv2.CascadeClassifier(eye_path)
+            if self.eye_cascade.empty():
+                raise Exception(f"Khong load duoc: {eye_path}")
+
+            face_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+            self.face_cascade = cv2.CascadeClassifier(face_path)
+            if self.face_cascade.empty():
+                raise Exception(f"Khong load duoc: {face_path}")
+
+            self.available = True
+            logger.info("✅ LivenessDetector loaded")
+            print("✅ Node 2 LivenessDetector ready")
+        except Exception as e:
+            logger.error(f"❌ Khong load duoc Haar Cascade: {e}")
+            print(f"⚠️ Khong load duoc Haar Cascade: {e}")
+            self.available = False
+
+    def _detect_eyes(self, face_upper_bgr):
+        if face_upper_bgr is None or face_upper_bgr.size == 0:
+            return 0
+        gray = cv2.cvtColor(face_upper_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+        eyes = self.eye_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=5, minSize=self.min_eye_size
+        )
+        return len(eyes)
+
+    def _detect_face(self, frame_bgr):
+        if frame_bgr is None:
+            return None
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.equalizeHist(gray)
+        faces = self.face_cascade.detectMultiScale(
+            gray, scaleFactor=1.15, minNeighbors=5, minSize=(80, 80)
+        )
+        if len(faces) == 0:
+            return None
+        faces = sorted(faces, key=lambda f: f[2] * f[3], reverse=True)
+        return faces[0]
+
+    def check_blink(self, camera, timeout=3.0, required_blinks=1):
+        """
+        ⭐ Giam timeout xuong 3s
+        ⭐ Frame skip 2 -> nhe hon
+        """
+        if not self.available:
+            return {
+                'is_live': True, 'blink_count': 0, 'elapsed': 0.0,
+                'message': '⚠️ Liveness OFF'
+            }
+
+        blink_count = 0
+        eyes_closed_state = False
+        start = time.time()
+        frame_idx = 0
+
+        print(f"👁️ [Liveness] Kiem tra chop mat ({required_blinks} lan trong {timeout}s)...")
+
+        while time.time() - start < timeout:
+            # ⭐ Doc camera qua camera_handler (co lock)
+            frame = camera.capture_frame()
+            if frame is None:
+                time.sleep(0.01)
+                continue
+
+            frame_idx += 1
+
+            # ⭐ Frame skip: chi check moi 2 frame
+            if frame_idx % Config.LIVENESS_FRAME_SKIP != 0:
+                # Van hien thi frame
+                display = frame.copy()
+                time_left = timeout - (time.time() - start)
+                cv2.putText(display, "HAY CHOP MAT DE XAC THUC",
+                            (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                cv2.putText(display, f"Blinks: {blink_count}/{required_blinks} | Time: {time_left:.1f}s",
+                            (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.imshow('Node 2 - Security Gate', display)
+                cv2.waitKey(1)
+                continue
+
+            # Check face + eyes
+            face_box = self._detect_face(frame)
+            n_eyes = 0
+            if face_box is not None:
+                x, y, w, h = face_box
+                face_upper = frame[y:y + h // 2, x:x + w]
+                n_eyes = self._detect_eyes(face_upper)
+
+            # Logic phat hien chop mat
+            if n_eyes >= 2:
+                if eyes_closed_state:
+                    blink_count += 1
+                    print(f"   👁️ Phat hien chop mat lan {blink_count}")
+                    eyes_closed_state = False
+                    if blink_count >= required_blinks:
+                        display = frame.copy()
+                        cv2.putText(display, "✅ DA CHOP MAT - OK",
+                                    (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                        cv2.imshow('Node 2 - Security Gate', display)
+                        cv2.waitKey(200)
+                        break
+            elif n_eyes == 0 and face_box is not None:
+                eyes_closed_state = True
+
+            # Hien thi
+            display = frame.copy()
+            if face_box is not None:
+                x, y, w, h = face_box
+                cv2.rectangle(display, (x, y), (x + w, y + h), (255, 255, 0), 2)
+
+            cv2.putText(display, "HAY CHOP MAT DE XAC THUC",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+            cv2.putText(display, f"Blinks: {blink_count}/{required_blinks} | Eyes: {n_eyes}",
+                        (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+            time_left = timeout - (time.time() - start)
+            cv2.putText(display, f"Time: {time_left:.1f}s",
+                        (20, 110), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
+
+            cv2.imshow('Node 2 - Security Gate', display)
+            cv2.waitKey(1)
+
+        elapsed = time.time() - start
+        is_live = blink_count >= required_blinks
+
+        return {
+            'is_live': is_live,
+            'blink_count': blink_count,
+            'elapsed': round(elapsed, 2),
+            'message': (
+                f'✅ Da chop mat {blink_count} lan'
+                if is_live else
+                f'❌ Khong phat hien chop mat ({blink_count}/{required_blinks})'
+            )
+        }

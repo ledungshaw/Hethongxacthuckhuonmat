@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block title %}Trang chủ{% endblock %}
+
+{% block extra_css %}
+<style>
+.realtime-clock {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 15px 25px;
+    border-radius: 15px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    max-width: 500px;
+    margin: 0 auto 30px auto;
+    flex-wrap: wrap;
+    gap: 10px;
+    box-shadow: 0 5px 20px rgba(102,126,234,0.3);
+}
+.realtime-clock .time {
+    font-size: 32px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 3px;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+.realtime-clock .date {
+    font-size: 16px;
+    opacity: 0.95;
+}
+.realtime-clock .day {
+    font-size: 14px;
+    opacity: 0.85;
+}
+.realtime-clock .clock-right {
+    text-align: right;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="welcome-screen">
+    <div class="welcome-icon">✈️</div>
+    <h1>Hệ thống Check-in Sân bay</h1>
+    <p class="subtitle">Vui lòng chọn vai trò để tiếp tục</p>
+    
+    <div class="realtime-clock">
+        <div>
+            <span class="time" id="clockTime">--:--:--</span>
+        </div>
+        <div class="clock-right">
+            <div class="date" id="clockDate">--/--/----</div>
+            <div class="day" id="clockDay">--</div>
+        </div>
+    </div>
+    
+    <div class="role-cards">
+        <div class="role-card admin" onclick="window.location.href='/login?role=admin'">
+            <div class="icon">👨‍💼</div>
+            <h3>Admin / Nhân viên</h3>
+            <p>Quản lý check-in, xem thống kê</p>
+        </div>
+        
+        <div class="role-card user" onclick="window.location.href='/login?role=user'">
+            <div class="icon">👤</div>
+            <h3>Hành khách</h3>
+            <p>Check-in online, xem thông tin</p>
+        </div>
+        
+        <div class="role-card guest" onclick="window.location.href='/admin/checkin'">
+            <div class="icon">🎫</div>
+            <h3>Check-in tại quầy</h3>
+            <p>Khách vãng lai không có tài khoản</p>
+        </div>
+    </div>
+</div>
+
+<script>
+// ========== CLOCK (ĐÃ SỬA LỖI) ==========
+function updateClock() {
+    fetch('/api/current_time')
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('clockTime').textContent = data.time;
+            document.getElementById('clockDate').textContent = data.date;
+            document.getElementById('clockDay').textContent = data.day;
+        })
+        .catch((err) => {
+            console.error('Lỗi lấy giờ từ Server:', err);
+        });
+}
+updateClock();
+setInterval(updateClock, 1000);
+</script>
+{% endblock %}

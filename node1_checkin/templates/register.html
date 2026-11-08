@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Đăng ký{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <a href="/" class="btn-back">⬅️ Quay lại</a>
+    <h2>📝 Đăng ký tài khoản</h2>
+    <p style="color:#888; text-align:center; margin-bottom:20px; font-size:14px;">
+        Tạo tài khoản để check-in online. Tài khoản cần được admin duyệt.
+    </p>
+    
+    {% if error %}
+    <div class="alert error">{{ error }}</div>
+    {% endif %}
+    
+    {% if success %}
+    <div class="alert success">{{ success }}</div>
+    {% endif %}
+    
+    <form method="POST" action="/register">
+        <div class="form-group">
+            <label>Tên đăng nhập *</label>
+            <input type="text" name="username" required placeholder="username">
+        </div>
+        
+        <div class="form-group">
+            <label>Họ và tên *</label>
+            <input type="text" name="full_name" required placeholder="Nguyễn Văn A">
+        </div>
+        
+        <div class="row">
+            <div class="form-group">
+                <label>Email *</label>
+                <input type="email" name="email" required placeholder="example@gmail.com">
+            </div>
+            <div class="form-group">
+                <label>Số điện thoại *</label>
+                <input type="tel" name="phone" required placeholder="0987654321">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>CCCD/CMND *</label>
+            <input type="text" name="cccd" required placeholder="012345678901">
+        </div>
+        
+        <div class="row">
+            <div class="form-group">
+                <label>Mật khẩu *</label>
+                <input type="password" name="password" required placeholder="••••••••">
+            </div>
+            <div class="form-group">
+                <label>Xác nhận mật khẩu *</label>
+                <input type="password" name="confirm_password" required placeholder="••••••••">
+            </div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary" style="width:100%; padding:12px; font-size:16px;">
+            📝 Đăng ký
+        </button>
+    </form>
+    
+    <p style="text-align:center; margin-top:15px; color:#888;">
+        Đã có tài khoản? <a href="/login" style="color:#667eea; font-weight:600;">Đăng nhập</a>
+    </p>
+</div>
+{% endblock %}

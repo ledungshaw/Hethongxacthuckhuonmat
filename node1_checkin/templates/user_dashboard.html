@@ -1,0 +1,817 @@
+{% extends "base.html" %}
+
+{% block title %}User Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+.user-dashboard { max-width: 1000px; margin: 0 auto; }
+.welcome-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 30px;
+    border-radius: 15px;
+    margin-bottom: 25px;
+    box-shadow: 0 5px 20px rgba(102,126,234,0.3);
+}
+.welcome-card h2 { font-size: 24px; }
+.welcome-card p { opacity: 0.9; margin-top: 5px; }
+
+.status-timeline {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+    margin-bottom: 25px;
+}
+.status-timeline h3 { color: #333; margin-bottom: 20px; }
+
+.timeline {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    padding: 10px 0;
+}
+.timeline::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 10%;
+    right: 10%;
+    height: 3px;
+    background: #e5e7eb;
+    transform: translateY(-50%);
+    z-index: 0;
+}
+.timeline-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 1;
+    flex: 1;
+}
+.timeline-step .circle {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    border: 3px solid #e5e7eb;
+    background: white;
+    transition: all 0.3s;
+    margin-bottom: 8px;
+    font-weight: 700;
+}
+.timeline-step .circle.active {
+    border-color: #22c55e;
+    background: #dcfce7;
+    box-shadow: 0 0 25px rgba(34,197,94,0.3);
+    transform: scale(1.1);
+}
+.timeline-step .circle.completed {
+    border-color: #22c55e;
+    background: #22c55e;
+    color: white;
+    box-shadow: 0 0 20px rgba(34,197,94,0.2);
+}
+.timeline-step .circle.pending {
+    border-color: #f59e0b;
+    background: #fef3c7;
+    box-shadow: 0 0 20px rgba(245,158,11,0.2);
+}
+.timeline-step .circle.inactive {
+    border-color: #e5e7eb;
+    background: #f9fafb;
+    color: #d1d5db;
+}
+.timeline-step .label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #888;
+    text-align: center;
+    transition: all 0.3s;
+}
+.timeline-step .label.active { color: #22c55e; font-weight: 700; font-size: 13px; }
+.timeline-step .label.completed { color: #22c55e; font-weight: 600; }
+.timeline-step .label.pending { color: #f59e0b; font-weight: 600; }
+.timeline-step .label.inactive { color: #d1d5db; font-weight: 400; }
+
+.action-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.action-card {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.3s;
+    border: 2px solid transparent;
+}
+.action-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+    border-color: #667eea;
+}
+.action-card .icon { font-size: 40px; }
+.action-card h3 { margin: 10px 0 5px; color: #333; }
+.action-card p { color: #888; font-size: 14px; }
+
+.fids-section {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+    margin-bottom: 25px;
+}
+.fids-section h3 { color: #333; margin-bottom: 15px; }
+.fids-table-container { overflow-x: auto; }
+.fids-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+.fids-table th {
+    background: #f8f9ff;
+    padding: 12px 10px;
+    text-align: left;
+    font-weight: 600;
+    color: #555;
+    border-bottom: 2px solid #e5e7eb;
+}
+.fids-table td {
+    padding: 10px 10px;
+    border-bottom: 1px solid #f0f2f5;
+}
+.fids-table .status-badge {
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-block;
+}
+.fids-table .status-badge.scheduled { background: #dbeafe; color: #1e40af; }
+.fids-table .status-badge.boarding { background: #fef3c7; color: #92400e; }
+.fids-table .status-badge.delayed { background: #fee2e2; color: #991b1b; }
+.fids-table .status-badge.arrived { background: #dcfce7; color: #166534; }
+.fids-table .status-badge.cancelled { background: #f3f4f6; color: #6b7280; }
+.fids-table .status-badge.departed { background: #8b5cf6; color: white; }
+
+.history-section {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+    margin-top: 25px;
+}
+.history-section h3 { color: #333; margin-bottom: 15px; }
+.history-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f2f5;
+}
+.history-item:last-child { border-bottom: none; }
+.history-item .time { font-size: 12px; color: #999; min-width: 80px; }
+.history-item .action-text { flex: 1; }
+.history-item .status-badge { font-size: 12px; }
+
+.checkin-info-card {
+    background: linear-gradient(135deg, #f0f4ff, #e8ecf8);
+    padding: 25px;
+    border-radius: 12px;
+    margin-top: 15px;
+    border: 2px solid #667eea;
+    box-shadow: 0 5px 20px rgba(102,126,234,0.15);
+}
+.checkin-info-card h4 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 18px;
+    text-align: center;
+}
+.checkin-info-card .sub-info {
+    text-align: center;
+    color: #666;
+    font-size: 14px;
+    margin-bottom: 15px;
+}
+.checkin-info-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 15px;
+}
+.checkin-info-item {
+    background: white;
+    padding: 15px;
+    border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    text-align: center;
+}
+.checkin-info-item .label {
+    font-size: 11px;
+    color: #999;
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+.checkin-info-item .value {
+    font-size: 20px;
+    font-weight: 700;
+    color: #333;
+    margin-top: 5px;
+}
+.checkin-info-item .value.pnr {
+    color: #667eea;
+    font-size: 26px;
+    letter-spacing: 3px;
+}
+.checkin-info-item .value.seat { color: #764ba2; }
+.checkin-info-item .value.gate { color: #22c55e; }
+.checkin-info-item .value.flight { color: #f59e0b; }
+
+.flight-history-section {
+    background: white;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+    margin-top: 25px;
+}
+.flight-history-section h3 { color: #333; margin-bottom: 15px; }
+
+.flight-history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: #fafbff;
+}
+.flight-history-item:hover {
+    border-color: #667eea;
+    box-shadow: 0 5px 15px rgba(102,126,234,0.15);
+    transform: translateY(-2px);
+}
+.flight-history-item .fh-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+.flight-history-item .fh-code {
+    font-weight: 700;
+    color: #1a1a2e;
+    font-size: 17px;
+    min-width: 80px;
+}
+.flight-history-item .fh-route {
+    color: #555;
+    font-size: 14px;
+}
+.flight-history-item .fh-time {
+    color: #667eea;
+    font-weight: 600;
+    font-size: 13px;
+}
+.flight-history-item .fh-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.flight-history-item .fh-status {
+    font-size: 12px;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.flight-history-item .fh-status.pending { background: #fef3c7; color: #92400e; }
+.flight-history-item .fh-status.approved { background: #dcfce7; color: #166534; }
+.flight-history-item .fh-status.rejected { background: #fee2e2; color: #991b1b; }
+.flight-history-item .fh-status.boarded { background: #8b5cf6; color: white; }
+.flight-history-item .fh-status.gate_passed { background: #3b82f6; color: white; }
+.flight-history-item .fh-arrow {
+    color: #667eea;
+    font-size: 14px;
+    transition: transform 0.3s;
+}
+.flight-history-item.open .fh-arrow { transform: rotate(180deg); }
+
+.flight-detail-box {
+    display: none;
+    margin-top: 10px;
+    margin-bottom: 15px;
+    padding: 15px;
+    background: #f0f4ff;
+    border-radius: 10px;
+    border-left: 4px solid #667eea;
+    animation: slideDown 0.3s ease;
+}
+.flight-detail-box.show { display: block; }
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.flight-detail-box .detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    font-size: 14px;
+    border-bottom: 1px dashed #dbe0f0;
+}
+.flight-detail-box .detail-row:last-child { border-bottom: none; }
+.flight-detail-box .detail-label { color: #888; font-weight: 500; }
+.flight-detail-box .detail-value { color: #333; font-weight: 600; }
+
+.status-badge { padding: 3px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+.status-badge.pending { background: #fef3c7; color: #92400e; }
+.status-badge.success { background: #dcfce7; color: #166534; }
+.status-badge.failed { background: #fee2e2; color: #991b1b; }
+.status-badge.info { background: #dbeafe; color: #1e40af; }
+
+.empty-state { text-align: center; padding: 30px; color: #888; }
+.empty-state .icon { font-size: 48px; margin-bottom: 10px; }
+
+.progress-text { text-align: center; margin-top: 15px; font-size: 14px; color: #888; }
+.progress-text strong { color: #333; }
+
+@media (max-width: 768px) {
+    .action-cards { grid-template-columns: 1fr; }
+    .timeline { flex-direction: column; gap: 15px; padding: 10px 0; }
+    .timeline::before { display: none; }
+    .timeline-step { flex-direction: row; gap: 15px; width: 100%; justify-content: flex-start; }
+    .timeline-step .circle { width: 40px; height: 40px; font-size: 18px; }
+    .timeline-step .label { font-size: 13px; text-align: left; }
+    .history-item { flex-wrap: wrap; }
+    .history-item .time { min-width: 60px; font-size: 11px; }
+    .checkin-info-grid { grid-template-columns: 1fr 1fr; }
+    .fids-table { font-size: 12px; }
+    .fids-table th, .fids-table td { padding: 6px 8px; }
+    .flight-history-item { flex-direction: column; align-items: flex-start; gap: 10px; }
+    .flight-history-item .fh-right { width: 100%; justify-content: space-between; }
+}
+@media (max-width: 480px) {
+    .checkin-info-grid { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="user-dashboard">
+    <div class="welcome-card">
+        <h2>👤 Xin chào, {{ full_name }}!</h2>
+        <p>Đây là trang cá nhân của bạn. Theo dõi tiến độ check-in và quản lý chuyến bay.</p>
+    </div>
+
+    <div class="status-timeline">
+        <h3>📋 Tiến độ check-in của bạn</h3>
+        <div class="timeline" id="timeline">
+            <div class="timeline-step">
+                <div class="circle" id="stepRegister">📝</div>
+                <span class="label" id="labelRegister">Đăng ký</span>
+            </div>
+            <div class="timeline-step">
+                <div class="circle" id="stepApprove">✅</div>
+                <span class="label" id="labelApprove">Duyệt</span>
+            </div>
+            <div class="timeline-step">
+                <div class="circle" id="stepCheckin">✈️</div>
+                <span class="label" id="labelCheckin">Check-in</span>
+            </div>
+            <div class="timeline-step">
+                <div class="circle" id="stepGate">🚪</div>
+                <span class="label" id="labelGate">Qua cổng</span>
+            </div>
+            <div class="timeline-step">
+                <div class="circle" id="stepBoarding">🎫</div>
+                <span class="label" id="labelBoarding">Lên máy bay</span>
+            </div>
+        </div>
+        <div class="progress-text" id="progressText">Đang tải trạng thái...</div>
+        
+        <div id="checkinInfoContainer"></div>
+    </div>
+
+    <div class="fids-section">
+        <h3>✈️ Bảng thông tin chuyến bay (FIDS)</h3>
+        <div class="fids-table-container">
+            <table class="fids-table">
+                <thead>
+                    <tr>
+                        <th>Mã bay</th>
+                        <th>Hãng</th>
+                        <th>Điểm đi</th>
+                        <th>Điểm đến</th>
+                        <th>Giờ dự kiến</th>
+                        <th>Trạng thái</th>
+                        <th>Cổng</th>
+                    </tr>
+                </thead>
+                <tbody id="fidsTableBody">
+                    <tr><td colspan="7" style="text-align:center; color:#888;">Đang tải...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="action-cards">
+        <div class="action-card" onclick="window.location.href='/user/checkin'">
+            <div class="icon">✈️</div>
+            <h3>Check-in Online</h3>
+            <p>Làm thủ tục từ xa<br><small style="color:#999;">(Cần admin duyệt)</small></p>
+        </div>
+        <div class="action-card" onclick="window.location.href='/logout'">
+            <div class="icon">🚪</div>
+            <h3>Đăng xuất</h3>
+            <p>Thoát tài khoản</p>
+        </div>
+    </div>
+
+    <div class="flight-history-section">
+        <h3>✈️ Lịch sử chuyến bay đã đăng ký</h3>
+        <div id="flightHistoryList">
+            <div class="empty-state">
+                <div class="icon">✈️</div>
+                <p>Chưa có chuyến bay nào được đăng ký</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="history-section">
+        <h3>📜 Lịch sử hoạt động</h3>
+        <div id="historyList">
+            <div class="empty-state">
+                <div class="icon">📭</div>
+                <p>Chưa có hoạt động nào</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Lấy userId
+var userId = "{{ user_id | default('0') }}";
+console.log('UserId =', userId);
+
+// ⭐ Format date DD/MM/YYYY
+function formatDate(dateStr) {
+    if (!dateStr) return '--';
+    try {
+        var parts = dateStr.split('-');
+        if (parts.length === 3) {
+            return parts[2] + '/' + parts[1] + '/' + parts[0];
+        }
+        var d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.getDate().toString().padStart(2, '0') + '/' +
+               (d.getMonth() + 1).toString().padStart(2, '0') + '/' +
+               d.getFullYear();
+    } catch (e) {
+        return dateStr;
+    }
+}
+
+// ========== LOAD FIDS ==========
+async function loadFids() {
+    try {
+        var response = await fetch('/api/fids');
+        var flights = await response.json();
+        var tbody = document.getElementById('fidsTableBody');
+        
+        if (!flights || flights.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#888;">Chưa có chuyến bay</td></tr>';
+            return;
+        }
+        
+        var html = '';
+        for (var i = 0; i < flights.length; i++) {
+            var f = flights[i];
+            var statusClass = f.status ? f.status.toLowerCase() : 'scheduled';
+            html = html + '<tr>';
+            html = html + '<td><strong>' + (f.flight_code || '--') + '</strong></td>';
+            html = html + '<td>' + (f.airline || '--') + '</td>';
+            html = html + '<td>' + (f.origin || '--') + '</td>';
+            html = html + '<td>' + (f.destination || '--') + '</td>';
+            html = html + '<td>' + (f.scheduled_time || '--') + '</td>';
+            html = html + '<td><span class="status-badge ' + statusClass + '">' + (f.status || 'Scheduled') + '</span></td>';
+            html = html + '<td>' + (f.gate || '--') + '</td>';
+            html = html + '</tr>';
+        }
+        tbody.innerHTML = html;
+    } catch (e) {
+        console.error('Load FIDS error:', e);
+        document.getElementById('fidsTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:red;">Lỗi tải dữ liệu</td></tr>';
+    }
+}
+
+// ========== USER STATUS ==========
+async function loadUserStatus() {
+    try {
+        if (!userId || userId === 0) {
+            console.log('Chưa đăng nhập');
+            return;
+        }
+
+        var response = await fetch('/api/user/' + userId + '/status');
+        var data = await response.json();
+
+        if (data.error) {
+            console.error('Error:', data.error);
+            return;
+        }
+
+        var status = data.status;
+        var user = data.user;
+        var requests = data.requests || [];
+
+        updateTimeline(status);
+        updateHistory(data.logs || []);
+        updateProgressText(status);
+        updateCheckinInfo(user, requests);
+        renderFlightHistory(requests);
+
+    } catch (e) {
+        console.error('Load status error:', e);
+    }
+}
+
+function updateTimeline(status) {
+    function setStep(elementId, labelId, state) {
+        var circle = document.getElementById(elementId);
+        var label = document.getElementById(labelId);
+        if (!circle || !label) return;
+        
+        circle.className = 'circle';
+        label.className = 'label';
+        if (state === 'completed') { 
+            circle.classList.add('completed'); 
+            label.classList.add('completed'); 
+        } else if (state === 'active') { 
+            circle.classList.add('active'); 
+            label.classList.add('active'); 
+        } else if (state === 'pending') { 
+            circle.classList.add('pending'); 
+            label.classList.add('pending'); 
+        } else { 
+            circle.classList.add('inactive'); 
+            label.classList.add('inactive'); 
+        }
+    }
+    
+    setStep('stepRegister', 'labelRegister', 'completed');
+    
+    if (status.pending_approval) { 
+        setStep('stepApprove', 'labelApprove', 'pending'); 
+    } else { 
+        setStep('stepApprove', 'labelApprove', 'completed'); 
+    }
+    
+    if (status.checked_in) { 
+        setStep('stepCheckin', 'labelCheckin', 'completed'); 
+    } else { 
+        setStep('stepCheckin', 'labelCheckin', 'pending'); 
+    }
+    
+    if (status.gate_passed) { 
+        setStep('stepGate', 'labelGate', 'completed'); 
+    } else if (status.checked_in) { 
+        setStep('stepGate', 'labelGate', 'pending'); 
+    } else { 
+        setStep('stepGate', 'labelGate', 'inactive'); 
+    }
+    
+    if (status.boarded) { 
+        setStep('stepBoarding', 'labelBoarding', 'completed'); 
+    } else if (status.gate_passed) { 
+        setStep('stepBoarding', 'labelBoarding', 'pending'); 
+    } else { 
+        setStep('stepBoarding', 'labelBoarding', 'inactive'); 
+    }
+}
+
+function updateProgressText(status) {
+    var textEl = document.getElementById('progressText');
+    if (!textEl) return;
+    
+    if (status.boarded) {
+        textEl.innerHTML = '🎉 <strong>Chúc mừng!</strong> Bạn đã hoàn thành toàn bộ tiến độ check-in!';
+        textEl.style.color = '#22c55e';
+    } else if (status.gate_passed) {
+        textEl.innerHTML = '✈️ Bạn đang ở bước <strong>Lên máy bay</strong> - Chỉ còn 1 bước nữa!';
+        textEl.style.color = '#f59e0b';
+    } else if (status.checked_in) {
+        textEl.innerHTML = '✅ Bạn đã check-in thành công! Tiếp theo: <strong>Qua cổng</strong>';
+        textEl.style.color = '#3b82f6';
+    } else if (status.pending_approval) {
+        textEl.innerHTML = '⏳ Tài khoản đang <strong>chờ admin duyệt</strong>. Vui lòng đợi!';
+        textEl.style.color = '#f59e0b';
+    } else {
+        textEl.innerHTML = '📝 Hãy bắt đầu bằng cách <strong>gửi yêu cầu check-in</strong>!';
+        textEl.style.color = '#888';
+    }
+}
+
+// ⭐ Hiển thị NHIỀU card check-in (không phải chỉ 1)
+function updateCheckinInfo(user, requests) {
+    var container = document.getElementById('checkinInfoContainer');
+    if (!container) return;
+    
+    var approvedRequests = [];
+    for (var i = 0; i < requests.length; i++) {
+        if (requests[i].status === 'approved') {
+            approvedRequests.push(requests[i]);
+        }
+    }
+    
+    if (approvedRequests.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    var html = '';
+    for (var j = 0; j < approvedRequests.length; j++) {
+        var req = approvedRequests[j];
+        var cardTitle = approvedRequests.length > 1 
+            ? '🎫 CHUYẾN BAY ' + (j + 1) + '/' + approvedRequests.length
+            : '🎫 THÔNG TIN CHECK-IN THÀNH CÔNG';
+        
+        var origin = req.origin || '--';
+        var destination = req.destination || '--';
+        
+        html += '<div class="checkin-info-card">';
+        html += '  <h4>' + cardTitle + '</h4>';
+        html += '  <div class="sub-info">Chuyến bay <strong>' + (req.flight_code || '--') + '</strong> (' + origin + ' → ' + destination + ') đã được xác nhận.</div>';
+        html += '  <div class="checkin-info-grid">';
+        html += '    <div class="checkin-info-item">';
+        html += '      <div class="label">✈️ Mã PNR</div>';
+        html += '      <div class="value pnr">' + (req.pnr_code || '---') + '</div>';
+        html += '    </div>';
+        html += '    <div class="checkin-info-item">';
+        html += '      <div class="label">💺 Số ghế</div>';
+        html += '      <div class="value seat">' + (req.seat_number || '---') + '</div>';
+        html += '    </div>';
+        html += '    <div class="checkin-info-item">';
+        html += '      <div class="label">🚪 Cổng lên máy bay</div>';
+        html += '      <div class="value gate">' + (req.gate_number || '---') + '</div>';
+        html += '    </div>';
+        html += '    <div class="checkin-info-item">';
+        html += '      <div class="label">✈️ Chuyến bay</div>';
+        html += '      <div class="value flight">' + (req.flight_code || '---') + '</div>';
+        html += '    </div>';
+        html += '  </div>';
+        html += '  <div style="text-align:center; margin-top:15px; padding:10px; background:#fff8e1; border-radius:8px; font-size:13px; color:#856404;">';
+        html += '    ⚠️ <strong>Lưu ý:</strong> Vui lòng mang theo CCCD/CMND và mã QR để xuất trình tại quầy check-in.';
+        html += '  </div>';
+        html += '</div>';
+    }
+    
+    container.innerHTML = html;
+}
+
+// ========== LỊCH SỬ CHUYẾN BAY ==========
+function renderFlightHistory(requests) {
+    var container = document.getElementById('flightHistoryList');
+    if (!container) return;
+    
+    if (!requests || requests.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">✈️</div><p>Chưa có chuyến bay nào được đăng ký</p></div>';
+        return;
+    }
+    
+    var html = '';
+    for (var i = 0; i < requests.length; i++) {
+        var req = requests[i];
+        var statusClass = 'pending';
+        var statusLabel = 'Chờ duyệt';
+        
+        if (req.status === 'approved') {
+            statusClass = 'approved';
+            statusLabel = 'Đã duyệt';
+        } else if (req.status === 'rejected') {
+            statusClass = 'rejected';
+            statusLabel = 'Từ chối';
+        } else if (req.status === 'boarded') {
+            statusClass = 'boarded';
+            statusLabel = 'Đã lên máy bay';
+        } else if (req.status === 'gate_passed') {
+            statusClass = 'gate_passed';
+            statusLabel = 'Đã qua cổng';
+        }
+        
+        var dateStr = req.flight_date || '--';
+        var timeStr = req.flight_time || '--';
+        var origin = req.origin || '--';
+        var destination = req.destination || '--';
+        
+        html += '<div class="flight-history-item" onclick="toggleFlightDetail(' + req.id + ', this)">';
+        html += '  <div class="fh-left">';
+        html += '    <span class="fh-code">' + (req.flight_code || '--') + '</span>';
+        html += '    <span class="fh-route">' + origin + ' ✈️ ' + destination + '</span>';
+        html += '    <span class="fh-time">🕐 ' + timeStr + ' | 📅 ' + formatDate(dateStr) + '</span>';
+        html += '  </div>';
+        html += '  <div class="fh-right">';
+        html += '    <span class="fh-status ' + statusClass + '">' + statusLabel + '</span>';
+        html += '    <span class="fh-arrow">▼</span>';
+        html += '  </div>';
+        html += '</div>';
+        
+        html += '<div class="flight-detail-box" id="flightDetail_' + req.id + '">';
+        html += '  <div class="detail-row"><span class="detail-label">Mã chuyến bay</span><span class="detail-value">' + (req.flight_code || '--') + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Hành trình</span><span class="detail-value">' + origin + ' → ' + destination + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Ngày bay</span><span class="detail-value">' + formatDate(dateStr) + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Giờ bay</span><span class="detail-value">' + timeStr + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Mã PNR</span><span class="detail-value">' + (req.pnr_code || 'Chưa có') + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Số ghế</span><span class="detail-value">' + (req.seat_number || 'Chưa có') + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Cổng</span><span class="detail-value">' + (req.gate_number || 'Chưa có') + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Trạng thái</span><span class="detail-value">' + statusLabel + '</span></div>';
+        html += '  <div class="detail-row"><span class="detail-label">Thời gian gửi</span><span class="detail-value">' + (req.created_at ? new Date(req.created_at).toLocaleString('vi-VN') : '--') + '</span></div>';
+        html += '</div>';
+    }
+    
+    container.innerHTML = html;
+}
+
+function toggleFlightDetail(reqId, element) {
+    var detail = document.getElementById('flightDetail_' + reqId);
+    if (!detail) return;
+    
+    var isOpen = detail.classList.contains('show');
+    
+    document.querySelectorAll('.flight-detail-box').forEach(function(el) {
+        el.classList.remove('show');
+    });
+    document.querySelectorAll('.flight-history-item').forEach(function(el) {
+        el.classList.remove('open');
+    });
+    
+    if (!isOpen) {
+        detail.classList.add('show');
+        if (element) element.classList.add('open');
+    }
+}
+
+function updateHistory(logs) {
+    var container = document.getElementById('historyList');
+    if (!container) return;
+    
+    if (!logs || logs.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="icon">📭</div><p>Chưa có hoạt động nào</p></div>';
+        return;
+    }
+    
+    var html = '';
+    var actionLabels = {
+        'register': '📝 Đăng ký tài khoản',
+        'login': '🔑 Đăng nhập',
+        'request_checkin': '✈️ Gửi yêu cầu check-in',
+        'admin_approve': '✅ Admin duyệt tài khoản',
+        'admin_reject': '❌ Admin từ chối tài khoản',
+        'checkin_approve': '✅ Admin duyệt check-in',
+        'checkin_reject': '❌ Admin từ chối check-in',
+        'gate_pass': '🚪 Qua cổng an ninh',
+        'board': '🎫 Lên máy bay'
+    };
+    var statusClasses = {
+        'register': 'info',
+        'login': 'info',
+        'request_checkin': 'pending',
+        'admin_approve': 'success',
+        'admin_reject': 'failed',
+        'checkin_approve': 'success',
+        'checkin_reject': 'failed',
+        'gate_pass': 'success',
+        'board': 'success'
+    };
+    
+    for (var i = 0; i < logs.length; i++) {
+        var log = logs[i];
+        var action = log.action || '';
+        var label = actionLabels[action] || action;
+        var cls = statusClasses[action] || 'info';
+        var time = log.created_at ? new Date(log.created_at).toLocaleString('vi-VN') : '';
+        html = html + '<div class="history-item">';
+        html = html + '<span class="time">' + time + '</span>';
+        html = html + '<span class="action-text">' + label + '</span>';
+        html = html + '<span class="status-badge ' + cls + '">' + (log.details || '') + '</span>';
+        html = html + '</div>';
+    }
+    container.innerHTML = html;
+}
+
+// ========== INIT ==========
+document.addEventListener('DOMContentLoaded', function() {
+    loadUserStatus();
+    loadFids();
+});
+
+// ⭐ Đồng bộ thời gian thực: refresh mỗi 5 giây
+setInterval(loadUserStatus, 5000);
+setInterval(loadFids, 15000);
+</script>
+{% endblock %}

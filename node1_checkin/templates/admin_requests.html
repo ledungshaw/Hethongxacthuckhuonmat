@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+
+{% block title %}Quản lý yêu cầu{% endblock %}
+
+{% block extra_css %}
+<style>
+.avatar-small {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 2px solid #e5e7eb;
+    background: #f3f4f6;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.avatar-small:hover {
+    transform: scale(1.1);
+    border-color: #667eea;
+    box-shadow: 0 0 15px rgba(102,126,234,0.3);
+}
+.avatar-placeholder {
+    width: 45px;
+    height: 45px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.user-cell { display: flex; align-items: center; gap: 12px; }
+.user-cell .info .name { font-weight: 600; color: #333; }
+.user-cell .info .email { font-size: 12px; color: #888; }
+.status-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
+.status-badge.pending { background: #fef3c7; color: #92400e; }
+.status-badge.approved { background: #dcfce7; color: #166534; }
+.status-badge.rejected { background: #fee2e2; color: #991b1b; }
+.btn-sm { padding: 5px 15px; font-size: 12px; border-radius: 20px; }
+.btn-warning { background: #f59e0b; color: white; }
+.btn-warning:hover { background: #d97706; }
+.btn-info { background: #3b82f6; color: white; }
+.btn-info:hover { background: #2563eb; }
+.btn-success { background: #22c55e; color: white; }
+.btn-success:hover { background: #16a34a; }
+.btn-danger { background: #ef4444; color: white; }
+.btn-danger:hover { background: #dc2626; }
+
+/* PNR highlight */
+.pnr-code {
+    font-weight: 700;
+    color: #667eea;
+    letter-spacing: 1px;
+    font-size: 14px;
+}
+.seat-code {
+    font-weight: 600;
+    color: #764ba2;
+}
+.gate-code {
+    font-weight: 600;
+    color: #22c55e;
+}
+
+.realtime-clock {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+.realtime-clock .time { font-size: 24px; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 2px; }
+.realtime-clock .date { font-size: 14px; opacity: 0.9; }
+.realtime-clock .day { font-size: 13px; opacity: 0.8; }
+
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+.modal.show { display: flex; }
+.modal-content {
+    background: white;
+    padding: 30px;
+    border-radius: 20px;
+    max-width: 450px;
+    width: 90%;
+    position: relative;
+    animation: modalIn 0.3s ease;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+}
+@keyframes modalIn {
+    from { transform: scale(0.8) translateY(20px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+}
+.modal-close {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    font-size: 28px;
+    cursor: pointer;
+    color: #999;
+    background: none;
+    border: none;
+}
+.modal-close:hover { color: #333; }
+.modal-avatar {
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 4px solid #667eea;
+    margin: 0 auto 15px;
+    display: block;
+    box-shadow: 0 5px 20px rgba(102,126,234,0.3);
+}
+.modal-avatar-placeholder {
+    width: 130px;
+    height: 130px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 60px;
+    color: white;
+    margin: 0 auto 15px;
+    box-shadow: 0 5px 20px rgba(102,126,234,0.3);
+}
+.modal-info { text-align: center; }
+.modal-info h3 { color: #1a1a2e; font-size: 22px; margin-bottom: 3px; }
+.modal-info .subtitle { color: #888; font-size: 13px; }
+.modal-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 15px;
+    text-align: left;
+    background: #f8f9ff;
+    padding: 12px 15px;
+    border-radius: 10px;
+    margin-top: 10px;
+}
+.modal-info-grid .item .label { font-size: 10px; color: #999; text-transform: uppercase; }
+.modal-info-grid .item .value { font-size: 14px; color: #1a1a2e; font-weight: 600; }
+
+@media (max-width: 768px) {
+    .modal-info-grid { grid-template-columns: 1fr; }
+    .fids-table { font-size: 12px; }
+    .fids-table th, .fids-table td { padding: 6px 8px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="dashboard-header">
+        <h2>📋 Quản lý yêu cầu Check-in</h2>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="loadRequests()">🔄 Refresh</button>
+            <a href="/admin/dashboard" class="btn btn-secondary">⬅️ Quay lại</a>
+        </div>
+    </div>
+
+    <div class="realtime-clock">
+        <div><span class="time" id="clockTime">--:--:--</span></div>
+        <div style="text-align:right;">
+            <div class="date" id="clockDate">--/--/----</div>
+            <div class="day" id="clockDay">--</div>
+        </div>
+    </div>
+
+    <div style="margin-bottom:20px; display:flex; gap:10px; flex-wrap:wrap; padding:15px; background:white; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,0.08);">
+        <button class="btn btn-sm btn-secondary" onclick="filterRequests('')">📋 Tất cả</button>
+        <button class="btn btn-sm btn-warning" onclick="filterRequests('pending')">⏳ Chờ duyệt</button>
+        <button class="btn btn-sm btn-success" onclick="filterRequests('approved')">✅ Đã duyệt</button>
+        <button class="btn btn-sm btn-danger" onclick="filterRequests('rejected')">❌ Từ chối</button>
+        <span style="margin-left:auto; color:#888; font-size:14px;" id="requestCount">0 yêu cầu</span>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Hành khách</th>
+                    <th>Ảnh</th>
+                    <th>Chuyến bay</th>
+                    <th>Ngày bay</th>
+                    <th>Giờ bay</th>
+                    <th>Hành lý</th>
+                    <th>PNR</th>
+                    <th>Ghế</th>
+                    <th>Cổng</th>
+                    <th>Trạng thái</th>
+                    <th>Thao tác</th>
+                </tr>
+            </thead>
+            <tbody id="requestTable">
+                <tr><td colspan="12" style="text-align:center; padding:40px; color:#888;">Đang tải...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="modal" id="avatarModal" onclick="if(event.target===this) closeModal()">
+    <div class="modal-content">
+        <button class="modal-close" onclick="closeModal()">✕</button>
+        <div id="avatarModalBody">
+            <img class="modal-avatar" id="modalAvatar" src="" alt="Avatar" style="display:none;">
+            <div class="modal-avatar-placeholder" id="modalAvatarPlaceholder">👤</div>
+            <div class="modal-info">
+                <h3 id="modalName">--</h3>
+                <div class="subtitle" id="modalEmail">--</div>
+                <div class="modal-info-grid">
+                    <div class="item"><span class="label">📞 SĐT</span><span class="value" id="modalPhone">--</span></div>
+                    <div class="item"><span class="label">📋 CCCD</span><span class="value" id="modalCccd">--</span></div>
+                    <div class="item"><span class="label">✈️ Chuyến bay</span><span class="value" id="modalFlight">--</span></div>
+                    <div class="item"><span class="label">📅 Ngày bay</span><span class="value" id="modalFlightDate">--</span></div>
+                    <div class="item"><span class="label">🕐 Giờ bay</span><span class="value" id="modalFlightTime">--</span></div>
+                    <div class="item"><span class="label">🧳 Hành lý</span><span class="value" id="modalLuggage">--</span></div>
+                    <div class="item"><span class="label">🎫 PNR</span><span class="value" id="modalPnr" style="color:#667eea;">--</span></div>
+                    <div class="item"><span class="label">💺 Số ghế</span><span class="value" id="modalSeat" style="color:#764ba2;">--</span></div>
+                    <div class="item" style="grid-column:1/-1;"><span class="label">🚪 Cổng</span><span class="value" id="modalGate" style="color:#22c55e;">--</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentFilter = '';
+
+function updateClock() {
+    fetch('/api/current_time')
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('clockTime').textContent = data.time;
+            document.getElementById('clockDate').textContent = data.date;
+            document.getElementById('clockDay').textContent = data.day;
+        })
+        .catch(() => {
+            const now = new Date();
+            document.getElementById('clockTime').textContent = now.toLocaleTimeString('vi-VN');
+            document.getElementById('clockDate').textContent = now.toLocaleDateString('vi-VN');
+            document.getElementById('clockDay').textContent = ['Chủ Nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'][now.getDay()];
+        });
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+function openAvatarModal(user, request) {
+    const avatarImg = document.getElementById('modalAvatar');
+    const placeholder = document.getElementById('modalAvatarPlaceholder');
+    
+    if (user.face_image_url) {
+        avatarImg.src = user.face_image_url;
+        avatarImg.style.display = 'block';
+        placeholder.style.display = 'none';
+    } else {
+        avatarImg.style.display = 'none';
+        placeholder.style.display = 'flex';
+    }
+    
+    document.getElementById('modalName').textContent = user.full_name || '--';
+    document.getElementById('modalEmail').textContent = user.email || '--';
+    document.getElementById('modalPhone').textContent = user.phone || '--';
+    document.getElementById('modalCccd').textContent = user.cccd || '--';
+    document.getElementById('modalFlight').textContent = request.flight_code || '--';
+    document.getElementById('modalFlightDate').textContent = request.flight_date || '--';
+    document.getElementById('modalFlightTime').textContent = request.flight_time || '--';
+    document.getElementById('modalLuggage').textContent = (request.luggage_count || 0) + ' kiện (' + (request.luggage_weight || 0) + 'kg)';
+    document.getElementById('modalPnr').textContent = request.pnr_code || '--';
+    document.getElementById('modalSeat').textContent = request.seat_number || '--';
+    document.getElementById('modalGate').textContent = request.gate_number || '--';
+    
+    document.getElementById('avatarModal').classList.add('show');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+    document.getElementById('avatarModal').classList.remove('show');
+    document.body.style.overflow = 'auto';
+}
+
+async function loadRequests() {
+    const url = currentFilter ? '/api/admin/checkin-requests?status=' + currentFilter : '/api/admin/checkin-requests';
+    
+    try {
+        const res = await fetch(url);
+        const requests = await res.json();
+        
+        const tbody = document.getElementById('requestTable');
+        const countSpan = document.getElementById('requestCount');
+        
+        if (!requests || requests.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="12" style="text-align:center; padding:40px; color:#888;">📭 Chưa có yêu cầu</td></tr>';
+            countSpan.textContent = '0 yêu cầu';
+            return;
+        }
+        
+        let html = '';
+        let pendingCount = 0;
+        
+        for (var i = 0; i < requests.length; i++) {
+            var r = requests[i];
+            var statusText = '', statusClass = '';
+            if (r.status === 'pending') { statusText = '⏳ Chờ duyệt'; statusClass = 'pending'; pendingCount++; }
+            else if (r.status === 'approved') { statusText = '✅ Đã duyệt'; statusClass = 'approved'; }
+            else if (r.status === 'rejected') { statusText = '❌ Từ chối'; statusClass = 'rejected'; }
+            
+            var user = r.user || {};
+            
+            var avatarHtml = '';
+            if (user.face_image_url) {
+                avatarHtml = '<img src="' + user.face_image_url + '" class="avatar-small" onclick="openAvatarModal(' + JSON.stringify(user).replace(/"/g, '&quot;') + ', ' + JSON.stringify(r).replace(/"/g, '&quot;') + ')" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">';
+                avatarHtml += '<div class="avatar-placeholder" style="display:none;" onclick="openAvatarModal(' + JSON.stringify(user).replace(/"/g, '&quot;') + ', ' + JSON.stringify(r).replace(/"/g, '&quot;') + ')">' + (user.full_name ? user.full_name.charAt(0).toUpperCase() : '?') + '</div>';
+            } else {
+                avatarHtml = '<div class="avatar-placeholder" onclick="openAvatarModal(' + JSON.stringify(user).replace(/"/g, '&quot;') + ', ' + JSON.stringify(r).replace(/"/g, '&quot;') + ')">' + (user.full_name ? user.full_name.charAt(0).toUpperCase() : '?') + '</div>';
+            }
+            
+            html += '<tr>';
+            html += '<td><strong>#' + r.id + '</strong></td>';
+            html += '<td><div class="user-cell"><div class="info"><span class="name">' + (user.full_name || 'N/A') + '</span><span class="email">' + (user.email || '') + '</span></div></div></td>';
+            html += '<td>' + avatarHtml + '</td>';
+            html += '<td><strong>' + (r.flight_code || '--') + '</strong></td>';
+            html += '<td>' + (r.flight_date || '--') + '</td>';
+            html += '<td>' + (r.flight_time || '--') + '</td>';
+            html += '<td>' + (r.luggage_count || 0) + ' kiện (' + (r.luggage_weight || 0) + 'kg)</td>';
+            html += '<td><span class="pnr-code">' + (r.pnr_code || '--') + '</span></td>';
+            html += '<td><span class="seat-code">' + (r.seat_number || '--') + '</span></td>';
+            html += '<td><span class="gate-code">' + (r.gate_number || '--') + '</span></td>';
+            html += '<td><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>';
+            html += '<td>';
+            if (r.status === 'pending') {
+                html += '<button class="btn btn-success btn-sm" onclick="reviewRequest(' + r.id + ', \'approve\')" style="margin-right:5px;">✅ Duyệt</button>';
+                html += '<button class="btn btn-danger btn-sm" onclick="reviewRequest(' + r.id + ', \'reject\')">❌ Từ chối</button>';
+            } else {
+                html += statusText;
+            }
+            html += '</td>';
+            html += '</tr>';
+        }
+        
+        tbody.innerHTML = html;
+        countSpan.textContent = requests.length + ' yêu cầu (' + pendingCount + ' chờ duyệt)';
+        
+    } catch (e) {
+        console.error('Load requests error:', e);
+        document.getElementById('requestTable').innerHTML = '<tr><td colspan="12" style="text-align:center; padding:40px; color:#ef4444;">❌ Lỗi tải dữ liệu</td></tr>';
+    }
+}
+
+function filterRequests(status) {
+    currentFilter = status;
+    loadRequests();
+}
+
+async function reviewRequest(requestId, action) {
+    var actionText = action === 'approve' ? 'duyệt' : 'từ chối';
+    if (!confirm('Xác nhận ' + actionText + ' yêu cầu này?')) return;
+    
+    try {
+        var res = await fetch('/api/admin/checkin-requests/' + requestId + '/review', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action, note: 'Admin ' + actionText + ' yêu cầu' })
+        });
+        var data = await res.json();
+        if (data.success) {
+            alert('✅ ' + data.message);
+            if (data.pnr) {
+                alert('🎫 Mã PNR: ' + data.pnr + '\n💺 Số ghế: ' + data.seat + '\n🚪 Cổng: ' + data.gate);
+            }
+            loadRequests();
+        } else {
+            alert('❌ Lỗi: ' + (data.error || 'Không xác định'));
+        }
+    } catch (e) {
+        alert('❌ Lỗi kết nối: ' + e.message);
+    }
+}
+
+loadRequests();
+setInterval(loadRequests, 10000);
+</script>
+{% endblock %}

@@ -1,0 +1,1147 @@
+from flask import Flask, request, jsonify, g, send_file
+from flask_cors import CORS
+from datetime import datetime
+import json
+import sqlite3
+import os
+import base64
+from io import BytesIO
+from PIL import Image
+import qrcode
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+import hashlib
+import random
+import string
+import cv2
+import numpy as np
+import onnxruntime as ort
+
+app = Flask(__name__)
+CORS(app)
+
+DB_PATH = 'database/airport.db'
+os.makedirs('database', exist_ok=True)
+os.makedirs('uploads/faces', exist_ok=True)
+os.makedirs('uploads/qrcodes', exist_ok=True)
+os.makedirs('uploads/temp', exist_ok=True)
+
+# ==================== CẤU HÌNH EMAIL ====================
+EMAIL_SENDER = 'airport.system04@gmail.com'
+EMAIL_PASSWORD = 'ntql unxw mpyt bqkp'
+
+# ==================== MOBILEFACENET ONNX ====================
+MOBILEFACENET_SESSION = None
+
+def get_mobilefacenet_session():
+    """Lazy load MobileFaceNet ONNX session"""
+    global MOBILEFACENET_SESSION
+    if MOBILEFACENET_SESSION is None:
+        try:
+            MOBILEFACENET_SESSION = ort.InferenceSession(
+                'models/mobilefacenet.onnx',
+                providers=['CPUExecutionProvider']
+            )
+            print("✅ MobileFaceNet ONNX loaded")
+        except Exception as e:
+            print(f"❌ MobileFaceNet load failed: {e}")
+            MOBILEFACENET_SESSION = None
+    return MOBILEFACENET_SESSION
+
+# ==================== HÀM TẠO PNR ====================
+def generate_pnr():
+    chars = string.ascii_uppercase + string.digits
+    chars = ''.join(c for c in chars if c not in 'O0I1')
+    return ''.join(random.choice(chars) for _ in range(6))
+
+def generate_seat_number():
+    rows = random.randint(1, 30)
+    cols = random.choice(['A', 'B', 'C', 'D', 'E', 'F'])
+    return f"{rows}{cols}"
+
+def generate_gate():
+    gates = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10']
+    return random.choice(gates)
+
+# ==================== TRÍCH XUẤT VECTOR MOBILEFACENET ====================
+def extract_face_vector_from_multiple(image_paths):
+    """
+    Trích xuất vector MobileFaceNet từ NHIỀU ảnh và lấy trung bình
+    - Detect mặt bằng Haar Cascade
+    - Crop mặt chính xác
+    - Resize 112x112
+    """
+    try:
+        if isinstance(image_paths, str):
+            image_paths = [image_paths]
+        
+        # Lấy ONNX session
+        session = get_mobilefacenet_session()
+        if session is None:
+            print("❌ MobileFaceNet session không khả dụng")
+            return None
+        
+        input_name = session.get_inputs()[0].name
+        output_name = session.get_outputs()[0].name
+        
+        # Load Haar Cascade
+        face_cascade = cv2.CascadeClassifier(
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+        )
+        
+        all_encodings = []
+        print(f"🔍 Đang trích xuất MobileFaceNet từ {len(image_paths)} ảnh...")
+        
+        for idx, image_path in enumerate(image_paths):
+            try:
+                if not os.path.exists(image_path):
+                    print(f"⚠️ Ảnh {idx+1} không tồn tại: {image_path}")
+                    continue
+                
+                # Đọc ảnh GỐC (không resize)
+                img = cv2.imread(image_path)
+                if img is None:
+                    print(f"⚠️ Ảnh {idx+1} không đọc được")
+                    continue
+                
+                print(f"   Ảnh {idx+1} shape: {img.shape}")
+                
+                # Detect mặt bằng Haar Cascade
+                gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+                faces = face_cascade.detectMultiScale(
+                    gray, 
+                    scaleFactor=1.05,
+                    minNeighbors=3,
+                    minSize=(30, 30)
+                )
+                
+                if len(faces) == 0:
+                    print(f"   ⚠️ Không tìm thấy mặt, dùng toàn bộ ảnh")
+                    face_img = img
+                else:
+                    # Lấy mặt lớn nhất (gần camera nhất)
+                    faces = sorted(faces, key=lambda f: f[2]*f[3], reverse=True)
+                    x, y, w, h = faces[0]
+                    face_img = img[y:y+h, x:x+w]
+                    print(f"   ✅ Crop mặt: {face_img.shape} (từ {len(faces)} mặt)")
+                
+                # Resize 112x112
+                face_img = cv2.resize(face_img, (112, 112))
+                
+                # Lưu ảnh crop cho ảnh đầu tiên
+                if idx == 0:
+                    dir_name = os.path.dirname(image_path)
+                    base_name = os.path.basename(image_path)
+                    name, ext = os.path.splitext(base_name)
+                    crop_path = os.path.join(dir_name, f"crop_{name}.jpg")
+                    cv2.imwrite(crop_path, face_img)
+                    print(f"   ✅ Lưu crop: {crop_path}")
+                
+                # Preprocessing (GIỐNG NODE 2)
+                face_rgb = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+                face_rgb = face_rgb.astype(np.float32) / 255.0
+                mean = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+                std = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+                face_rgb = (face_rgb - mean) / std
+                face_rgb = np.transpose(face_rgb, (2, 0, 1))
+                face_rgb = np.expand_dims(face_rgb, axis=0)
+                
+                # Inference
+                outputs = session.run([output_name], {input_name: face_rgb})
+                embedding = outputs[0][0]
+                embedding = embedding / np.linalg.norm(embedding)
+                
+                all_encodings.append(embedding)
+                print(f"   ✅ Ảnh {idx+1}: OK (vector length: {len(embedding)})")
+                    
+            except Exception as e:
+                print(f"   ❌ Ảnh {idx+1} lỗi: {e}")
+                continue
+        
+        if not all_encodings:
+            print("❌ Không có ảnh nào trích xuất được")
+            return None
+        
+        # Lấy TRUNG BÌNH của tất cả vector
+        avg_encoding = np.mean(all_encodings, axis=0)
+        avg_encoding = avg_encoding / np.linalg.norm(avg_encoding)
+        
+        print(f"✅ Đã trung bình {len(all_encodings)} vector MobileFaceNet")
+        return avg_encoding.tolist()
+        
+    except Exception as e:
+        print(f"❌ Lỗi trích xuất: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def save_face_vector_to_db(user_id, face_image_paths):
+    """Trích xuất vector MobileFaceNet từ NHIỀU ảnh và lưu vào database"""
+    try:
+        if isinstance(face_image_paths, str):
+            face_image_paths = [face_image_paths]
+        
+        vector = extract_face_vector_from_multiple(face_image_paths)
+        
+        if vector:
+            conn = get_db()
+            c = conn.cursor()
+            vector_json = json.dumps(vector)
+            c.execute("UPDATE users SET face_encoding=? WHERE id=?", (vector_json, user_id))
+            conn.commit()
+            print(f"✅ Đã lưu vector MobileFaceNet cho user {user_id} (từ {len(face_image_paths)} ảnh)")
+            return vector
+        return None
+    except Exception as e:
+        print(f"❌ Lỗi lưu vector face: {e}")
+        return None
+
+def save_face_images(face_images, user_id):
+    """Lưu TẤT CẢ ảnh khuôn mặt vào thư mục uploads/faces - KHÔNG RESIZE"""
+    saved_paths = []
+    try:
+        for idx, face_image in enumerate(face_images):
+            img = Image.open(face_image)
+            filename = f"face_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}.jpg"
+            filepath = os.path.join('uploads/faces', filename)
+            # KHÔNG resize, giữ nguyên ảnh gốc
+            img.save(filepath, 'JPEG', quality=95)
+            saved_paths.append(filepath)
+            print(f"✅ Đã lưu ảnh {idx+1}: {filepath} (size: {img.size})")
+        return saved_paths
+    except Exception as e:
+        print(f"❌ Lỗi lưu ảnh: {e}")
+        return []
+
+# ==================== HÀM GỬI EMAIL ====================
+def send_checkin_email(to_email, passenger_name, flight_code, flight_date, flight_time, pnr, seat, gate, qr_path):
+    """Gửi email xác nhận check-in"""
+    try:
+        if not to_email or '@' not in to_email:
+            print(f"❌ Email không hợp lệ: {to_email}")
+            return False
+        
+        print(f"📧 Đang gửi email đến: {to_email}")
+        
+        msg = MIMEMultipart('alternative')
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = to_email
+        msg['Subject'] = f'✈️ XÁC NHẬN CHECK-IN - Chuyến bay {flight_code} - PNR: {pnr}'
+        
+        try:
+            formatted_date = datetime.strptime(flight_date, '%Y-%m-%d').strftime('%d/%m/%Y') if flight_date else datetime.now().strftime('%d/%m/%Y')
+        except:
+            formatted_date = flight_date if flight_date else datetime.now().strftime('%d/%m/%Y')
+        
+        try:
+            formatted_time = flight_time if flight_time else datetime.now().strftime('%H:%M')
+        except:
+            formatted_time = flight_time if flight_time else datetime.now().strftime('%H:%M')
+        
+        now = datetime.now()
+        html_body = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <style>
+                body {{ font-family: 'Segoe UI', Arial, sans-serif; color: #333; background: #f5f7fa; margin: 0; padding: 20px; }}
+                .container {{ max-width: 600px; margin: 0 auto; background: white; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); overflow: hidden; }}
+                .header {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; }}
+                .header h1 {{ margin: 0; font-size: 28px; font-weight: 700; }}
+                .header p {{ margin: 8px 0 0; opacity: 0.9; font-size: 16px; }}
+                .content {{ padding: 30px; }}
+                .greeting {{ font-size: 18px; margin-bottom: 10px; }}
+                .greeting strong {{ color: #667eea; }}
+                .info-box {{ background: #f8f9ff; padding: 20px; border-radius: 12px; margin: 20px 0; border-left: 4px solid #667eea; }}
+                .info-box p {{ margin: 8px 0; font-size: 15px; }}
+                .info-box .label {{ font-weight: 600; color: #555; display: inline-block; width: 140px; }}
+                .ticket-box {{ background: #f0f4ff; padding: 20px; border-radius: 12px; margin: 15px 0; border: 2px solid #667eea; }}
+                .ticket-box .pnr-code {{ font-size: 24px; font-weight: bold; color: #667eea; letter-spacing: 3px; text-align: center; padding: 10px 0; }}
+                .ticket-box .seat-gate {{ display: flex; justify-content: space-around; text-align: center; padding: 10px 0; }}
+                .ticket-box .seat-gate div {{ flex: 1; }}
+                .ticket-box .seat-gate .number {{ font-size: 22px; font-weight: bold; color: #333; }}
+                .qr-section {{ text-align: center; margin: 25px 0; padding: 20px; background: #fafbff; border-radius: 12px; border: 2px dashed #e0e4f0; }}
+                .qr-section img {{ max-width: 200px; border: 3px solid #667eea; border-radius: 12px; padding: 5px; background: white; }}
+                .note {{ background: #fff8e1; padding: 12px 18px; border-radius: 8px; font-size: 13px; color: #856404; border-left: 4px solid #f59e0b; margin: 20px 0; }}
+                .footer {{ text-align: center; padding: 20px; color: #999; font-size: 12px; border-top: 1px solid #eee; background: #fafbfc; }}
+                .footer .brand {{ color: #667eea; font-weight: 600; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>✈️ XÁC NHẬN CHECK-IN</h1>
+                    <p>Chuyến bay: <strong>{flight_code}</strong></p>
+                </div>
+                <div class="content">
+                    <p class="greeting">Kính gửi <strong>{passenger_name}</strong>,</p>
+                    <p>Yêu cầu check-in của bạn đã được <strong>DUYỆT</strong> thành công!</p>
+                    
+                    <div class="ticket-box">
+                        <p style="text-align:center; margin:0; color:#667eea; font-weight:600;">🎫 THÔNG TIN LÊN MÁY BAY</p>
+                        <div class="pnr-code">PNR: {pnr}</div>
+                        <div class="seat-gate">
+                            <div>
+                                <p style="margin:0; color:#666;">💺 Số ghế</p>
+                                <p class="number">{seat}</p>
+                            </div>
+                            <div>
+                                <p style="margin:0; color:#666;">🚪 Cổng</p>
+                                <p class="number">{gate}</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="info-box">
+                        <p><span class="label">✈️ Mã chuyến bay</span> <strong>{flight_code}</strong></p>
+                        <p><span class="label">📅 Ngày bay</span> <strong>{formatted_date}</strong></p>
+                        <p><span class="label">🕐 Giờ bay</span> <strong>{formatted_time}</strong></p>
+                        <p><span class="label">🎫 Mã PNR</span> <strong style="color:#667eea; font-size:18px;">{pnr}</strong></p>
+                        <p><span class="label">💺 Số ghế</span> <strong style="color:#764ba2;">{seat}</strong></p>
+                        <p><span class="label">🚪 Cổng</span> <strong style="color:#764ba2;">{gate}</strong></p>
+                    </div>
+                    
+                    <div class="qr-section">
+                        <p>📱 <strong>Mã QR lên máy bay</strong></p>
+                        <img src="cid:qr_code" alt="QR Code">
+                        <p style="font-size:12px; color:#999; margin-top:10px;">Vui lòng xuất trình mã QR này tại cổng lên máy bay</p>
+                    </div>
+                    
+                    <div class="note">
+                        ⚠️ <strong>Lưu ý:</strong> Vui lòng mang theo giấy tờ tùy thân và đến sân bay trước giờ bay ít nhất 45 phút.
+                    </div>
+                    
+                    <p style="color:#666; font-size:14px; text-align:center; margin-top:20px;">
+                        Chúc bạn có một chuyến bay vui vẻ! 🌟
+                    </p>
+                </div>
+                <div class="footer">
+                    <p class="brand">🏢 Hệ thống sân bay</p>
+                    <p>© {now.year} Tất cả quyền được bảo lưu.</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        part_html = MIMEText(html_body, 'html')
+        msg.attach(part_html)
+        
+        if os.path.exists(qr_path):
+            with open(qr_path, 'rb') as f:
+                img_data = f.read()
+                img = MIMEImage(img_data, name='boarding_pass.png')
+                img.add_header('Content-ID', '<qr_code>')
+                img.add_header('Content-Disposition', 'inline', filename='boarding_pass.png')
+                msg.attach(img)
+        
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        
+        print(f"✅ Đã gửi email thành công đến {to_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Lỗi gửi email: {e}")
+        return False
+
+def generate_qr_code(user_id, flight_code, pnr):
+    """Tạo mã QR"""
+    try:
+        qr_data = json.dumps({
+            'user_id': user_id,
+            'flight_code': flight_code,
+            'pnr': pnr,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_L, box_size=10, border=4)
+        qr.add_data(qr_data)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        filename = f"qr_{user_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        filepath = os.path.join('uploads/qrcodes', filename)
+        img.save(filepath)
+        
+        print(f"✅ Đã tạo QR: {filepath}")
+        return filepath
+    except Exception as e:
+        print(f"❌ Lỗi tạo QR: {e}")
+        return None
+
+# ==================== DATABASE ====================
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
+@app.teardown_appcontext
+def close_db(error):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    c = conn.cursor()
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password TEXT,
+        email TEXT,
+        phone TEXT,
+        full_name TEXT,
+        cccd TEXT UNIQUE,
+        role TEXT DEFAULT 'user',
+        status TEXT DEFAULT 'pending',
+        flight_code TEXT,
+        flight_date TEXT,
+        flight_time TEXT,
+        ticket_type TEXT,
+        luggage_count INTEGER DEFAULT 0,
+        luggage_weight REAL DEFAULT 0,
+        checked_in INTEGER DEFAULT 0,
+        gate_passed INTEGER DEFAULT 0,
+        boarded INTEGER DEFAULT 0,
+        face_encoding TEXT,
+        face_image_path TEXT,
+        qr_code_path TEXT,
+        qr_code_data TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS checkin_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        flight_code TEXT,
+        flight_date TEXT,
+        flight_time TEXT,
+        ticket_type TEXT,
+        luggage_count INTEGER DEFAULT 0,
+        luggage_weight REAL DEFAULT 0,
+        pnr_code TEXT,
+        seat_number TEXT,
+        gate_number TEXT,
+        status TEXT DEFAULT 'pending',
+        review_note TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        reviewed_at TIMESTAMP
+    )''')
+    
+    c.execute("PRAGMA table_info(checkin_requests)")
+    columns = [col[1] for col in c.fetchall()]
+    
+    if 'pnr_code' not in columns:
+        c.execute("ALTER TABLE checkin_requests ADD COLUMN pnr_code TEXT")
+    if 'seat_number' not in columns:
+        c.execute("ALTER TABLE checkin_requests ADD COLUMN seat_number TEXT")
+    if 'gate_number' not in columns:
+        c.execute("ALTER TABLE checkin_requests ADD COLUMN gate_number TEXT")
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS fids (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        flight_code TEXT NOT NULL,
+        airline TEXT,
+        origin TEXT,
+        destination TEXT,
+        scheduled_time TEXT,
+        estimated_time TEXT,
+        actual_time TEXT,
+        status TEXT DEFAULT 'Scheduled',
+        gate TEXT,
+        checkin_counter TEXT,
+        terminal TEXT,
+        remark TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS fids_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fids_id INTEGER,
+        old_status TEXT,
+        new_status TEXT,
+        changed_by TEXT,
+        changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    
+    c.execute('''CREATE TABLE IF NOT EXISTS activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        action TEXT,
+        details TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    
+    from werkzeug.security import generate_password_hash
+    c.execute("SELECT * FROM users WHERE username='admin'")
+    if not c.fetchone():
+        c.execute('''INSERT INTO users 
+            (username, password, email, phone, full_name, cccd, role, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            ('admin', generate_password_hash('admin123'), 'admin@system.com', '0900000000', 'Administrator', '000000000000', 'admin', 'approved'))
+    
+    c.execute("SELECT COUNT(*) FROM fids")
+    if c.fetchone()[0] == 0:
+        sample_flights = [
+            ('VN123', 'Vietnam Airlines', 'Hà Nội', 'TP.HCM', '08:00', '08:00', None, 'Scheduled', 'G1', 'C1', 'T1', None),
+            ('VJ456', 'VietJet Air', 'TP.HCM', 'Đà Nẵng', '09:30', '09:30', None, 'Scheduled', 'G2', 'C2', 'T1', None),
+            ('VN789', 'Vietnam Airlines', 'Hà Nội', 'Đà Nẵng', '10:45', '10:45', None, 'Boarding', 'G3', 'C3', 'T1', None),
+            ('VJ012', 'VietJet Air', 'Đà Nẵng', 'TP.HCM', '12:00', '12:00', None, 'Scheduled', 'G4', 'C4', 'T1', None),
+            ('VN345', 'Vietnam Airlines', 'Hà Nội', 'TP.HCM', '13:15', '13:15', None, 'Scheduled', 'G5', 'C5', 'T1', None),
+            ('BAM678', 'Bamboo Airways', 'TP.HCM', 'Hà Nội', '14:30', '14:30', None, 'Delayed', 'G6', 'C6', 'T1', 'Delay 30 phút'),
+        ]
+        for f in sample_flights:
+            c.execute('''INSERT INTO fids 
+                (flight_code, airline, origin, destination, scheduled_time, estimated_time, actual_time, status, gate, checkin_counter, terminal, remark)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', f)
+    
+    conn.commit()
+    conn.close()
+    print("✅ Database initialized")
+
+init_db()
+
+# ==================== FIDS API ====================
+@app.route('/api/fids', methods=['GET'])
+def get_fids():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM fids ORDER BY scheduled_time")
+    flights = c.fetchall()
+    return jsonify([dict(f) for f in flights])
+
+@app.route('/api/fids/<int:fids_id>', methods=['GET'])
+def get_fids_detail(fids_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM fids WHERE id=?", (fids_id,))
+    flight = c.fetchone()
+    if not flight:
+        return jsonify({'error': 'Không tìm thấy chuyến bay'}), 404
+    return jsonify(dict(flight))
+
+@app.route('/api/fids', methods=['POST'])
+def create_fids():
+    try:
+        data = request.json
+        conn = get_db()
+        c = conn.cursor()
+        c.execute('''INSERT INTO fids 
+            (flight_code, airline, origin, destination, scheduled_time, estimated_time, actual_time, status, gate, checkin_counter, terminal, remark)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (data['flight_code'], data.get('airline', ''), data.get('origin', ''),
+             data.get('destination', ''), data.get('scheduled_time', ''),
+             data.get('estimated_time', ''), data.get('actual_time', ''),
+             data.get('status', 'Scheduled'), data.get('gate', ''),
+             data.get('checkin_counter', ''), data.get('terminal', ''),
+             data.get('remark', '')))
+        conn.commit()
+        return jsonify({'success': True, 'message': 'Đã thêm chuyến bay'}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fids/<int:fids_id>', methods=['PUT'])
+def update_fids(fids_id):
+    try:
+        data = request.json
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT status FROM fids WHERE id=?", (fids_id,))
+        old = c.fetchone()
+        old_status = old['status'] if old else None
+        c.execute('''UPDATE fids SET 
+            flight_code=?, airline=?, origin=?, destination=?, 
+            scheduled_time=?, estimated_time=?, actual_time=?, 
+            status=?, gate=?, checkin_counter=?, terminal=?, remark=?,
+            updated_at=CURRENT_TIMESTAMP
+            WHERE id=?''',
+            (data['flight_code'], data.get('airline', ''), data.get('origin', ''),
+             data.get('destination', ''), data.get('scheduled_time', ''),
+             data.get('estimated_time', ''), data.get('actual_time', ''),
+             data.get('status', 'Scheduled'), data.get('gate', ''),
+             data.get('checkin_counter', ''), data.get('terminal', ''),
+             data.get('remark', ''), fids_id))
+        if old_status and old_status != data.get('status'):
+            c.execute('''INSERT INTO fids_logs (fids_id, old_status, new_status, changed_by)
+                VALUES (?, ?, ?, ?)''',
+                (fids_id, old_status, data.get('status'), data.get('changed_by', 'admin')))
+        conn.commit()
+        return jsonify({'success': True, 'message': 'Đã cập nhật chuyến bay'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/fids/<int:fids_id>', methods=['DELETE'])
+def delete_fids(fids_id):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("DELETE FROM fids WHERE id=?", (fids_id,))
+        conn.commit()
+        return jsonify({'success': True, 'message': 'Đã xóa chuyến bay'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== AUTH ====================
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    try:
+        data = request.json
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username=?", (data['username'],))
+        if c.fetchone():
+            return jsonify({'error': 'Tên đăng nhập đã tồn tại'}), 400
+        from werkzeug.security import generate_password_hash
+        c.execute('''INSERT INTO users 
+            (username, password, email, phone, full_name, cccd, role, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (data['username'], generate_password_hash(data['password']), 
+             data['email'], data['phone'], data['full_name'], data['cccd'], 'user', 'pending'))
+        conn.commit()
+        user_id = c.lastrowid
+        c.execute("INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)",
+                 (user_id, 'register', 'Đăng ký tài khoản thành công'))
+        conn.commit()
+        return jsonify({
+            'success': True,
+            'message': 'Đăng ký thành công! Vui lòng chờ admin duyệt.',
+            'user_id': user_id
+        }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    try:
+        data = request.json
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE username=?", (data['username'],))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'Tên đăng nhập không tồn tại'}), 401
+        from werkzeug.security import check_password_hash
+        if not check_password_hash(user['password'], data['password']):
+            return jsonify({'error': 'Mật khẩu không đúng'}), 401
+        if user['status'] == 'pending':
+            return jsonify({'error': 'Tài khoản đang chờ admin duyệt'}), 403
+        c.execute("INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)",
+                 (user['id'], 'login', 'Đăng nhập thành công'))
+        conn.commit()
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user['id'],
+                'username': user['username'],
+                'role': user['role'],
+                'full_name': user['full_name'],
+                'status': user['status']
+            }
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== ADMIN ====================
+@app.route('/api/admin/users', methods=['GET'])
+def get_users():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users ORDER BY id DESC")
+    users = c.fetchall()
+    result = []
+    for u in users:
+        user_dict = dict(u)
+        if user_dict.get('face_image_path'):
+            try:
+                paths = json.loads(user_dict['face_image_path'])
+                if isinstance(paths, list) and paths:
+                    first_path = paths[0]
+                else:
+                    first_path = user_dict['face_image_path']
+            except:
+                first_path = user_dict['face_image_path']
+            
+            if os.path.exists(first_path):
+                user_dict['face_image_url'] = f"/api/face_image/{user_dict['id']}"
+            else:
+                user_dict['face_image_url'] = None
+        else:
+            user_dict['face_image_url'] = None
+        result.append(user_dict)
+    return jsonify(result)
+
+@app.route('/api/face_image/<int:user_id>')
+def get_face_image(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT face_image_path FROM users WHERE id=?", (user_id,))
+    row = c.fetchone()
+    conn.close()
+    
+    if not row or not row['face_image_path']:
+        return '', 404
+    
+    path = row['face_image_path']
+    try:
+        paths = json.loads(path)
+        if isinstance(paths, list) and paths:
+            path = paths[0]
+    except:
+        pass
+    
+    try:
+        return send_file(path, mimetype='image/jpeg')
+    except:
+        return '', 404
+
+@app.route('/api/admin/users/<int:user_id>/approve', methods=['POST'])
+def approve_user(user_id):
+    try:
+        action = request.json.get('action')
+        conn = get_db()
+        c = conn.cursor()
+        status = 'approved' if action == 'approve' else 'rejected'
+        c.execute("UPDATE users SET status=? WHERE id=?", (status, user_id))
+        conn.commit()
+        c.execute("INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)",
+                 (user_id, f'admin_{action}', f'Admin {("duyệt" if action == "approve" else "từ chối")} tài khoản'))
+        conn.commit()
+        return jsonify({
+            'success': True,
+            'message': f'Đã {("duyệt" if action == "approve" else "từ chối")} tài khoản'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/admin/stats', methods=['GET'])
+def get_stats():
+    conn = get_db()
+    c = conn.cursor()
+    
+    c.execute("SELECT COUNT(*) FROM users")
+    total = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE status='pending'")
+    pending = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE checked_in=1")
+    checked_in = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE gate_passed=1")
+    gate_passed = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM users WHERE boarded=1")
+    boarded = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM checkin_requests WHERE status='pending'")
+    pending_checkin = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM checkin_requests WHERE status='approved'")
+    approved_checkin = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM checkin_requests WHERE status='rejected'")
+    rejected_checkin = c.fetchone()[0]
+    
+    c.execute("""
+        SELECT flight_code, 
+               COUNT(*) as total, 
+               SUM(checked_in) as checked_in, 
+               SUM(gate_passed) as gate_passed,
+               SUM(boarded) as boarded 
+        FROM users 
+        WHERE flight_code IS NOT NULL AND flight_code != ''
+        GROUP BY flight_code
+    """)
+    flights = c.fetchall()
+    by_flight = {}
+    for f in flights:
+        if f['flight_code']:
+            by_flight[f['flight_code']] = {
+                'total': f['total'],
+                'checked_in': f['checked_in'] or 0,
+                'gate_passed': f['gate_passed'] or 0,
+                'boarded': f['boarded'] or 0
+            }
+    
+    c.execute("""
+        SELECT DATE(created_at) as date, COUNT(*) as count 
+        FROM users 
+        WHERE created_at >= DATE('now', '-7 days')
+        GROUP BY DATE(created_at)
+        ORDER BY date
+    """)
+    daily = c.fetchall()
+    daily_stats = [{'date': d['date'], 'count': d['count']} for d in daily]
+    
+    return jsonify({
+        'total_users': total,
+        'pending_users': pending,
+        'checked_in': checked_in,
+        'gate_passed': gate_passed,
+        'boarded': boarded,
+        'pending_checkin': pending_checkin,
+        'approved_checkin': approved_checkin,
+        'rejected_checkin': rejected_checkin,
+        'by_flight': by_flight,
+        'daily_stats': daily_stats
+    })
+
+@app.route('/api/admin/checkin-requests', methods=['GET'])
+def get_checkin_requests():
+    conn = get_db()
+    c = conn.cursor()
+    status = request.args.get('status')
+    if status:
+        c.execute("SELECT * FROM checkin_requests WHERE status=? ORDER BY created_at DESC", (status,))
+    else:
+        c.execute("SELECT * FROM checkin_requests ORDER BY created_at DESC")
+    requests = c.fetchall()
+    result = []
+    for r in requests:
+        data = dict(r)
+        c.execute("SELECT * FROM users WHERE id=?", (data['user_id'],))
+        user = c.fetchone()
+        if user:
+            user_dict = dict(user)
+            if user_dict.get('face_image_path'):
+                user_dict['face_image_url'] = f"/api/face_image/{user_dict['id']}"
+            data['user'] = user_dict
+        result.append(data)
+    return jsonify(result)
+
+@app.route('/api/admin/checkin-requests/<int:request_id>/review', methods=['POST'])
+def review_checkin_request(request_id):
+    try:
+        action = request.json.get('action')
+        note = request.json.get('note', '')
+        
+        conn = get_db()
+        c = conn.cursor()
+        status = 'approved' if action == 'approve' else 'rejected'
+        
+        if action == 'approve':
+            pnr = generate_pnr()
+            seat = generate_seat_number()
+            gate = generate_gate()
+            c.execute("""UPDATE checkin_requests SET 
+                status=?, review_note=?, reviewed_at=CURRENT_TIMESTAMP,
+                pnr_code=?, seat_number=?, gate_number=?
+                WHERE id=?""", 
+                (status, note, pnr, seat, gate, request_id))
+        else:
+            c.execute("UPDATE checkin_requests SET status=?, review_note=?, reviewed_at=CURRENT_TIMESTAMP WHERE id=?", 
+                     (status, note, request_id))
+        
+        conn.commit()
+        
+        c.execute("SELECT user_id, flight_code, flight_date, flight_time, luggage_count, luggage_weight, pnr_code, seat_number, gate_number FROM checkin_requests WHERE id=?", (request_id,))
+        row = c.fetchone()
+        
+        if row and action == 'approve':
+            c.execute("""UPDATE users SET 
+                checked_in=1, 
+                flight_code=?, 
+                flight_date=?, 
+                flight_time=?,
+                luggage_count=?,
+                luggage_weight=?
+                WHERE id=?""", 
+                (row['flight_code'], row['flight_date'], row['flight_time'], 
+                 row['luggage_count'], row['luggage_weight'], row['user_id']))
+            conn.commit()
+            
+            c.execute("SELECT email, full_name FROM users WHERE id=?", (row['user_id'],))
+            user = c.fetchone()
+            
+            if user:
+                print(f"📧 Email: {user['email']}")
+                print(f"👤 Tên: {user['full_name']}")
+                print(f"🎫 PNR: {row['pnr_code']}")
+                print(f"💺 Ghế: {row['seat_number']}")
+                print(f"🚪 Cổng: {row['gate_number']}")
+            
+            qr_path = generate_qr_code(row['user_id'], row['flight_code'], row['pnr_code'])
+            if qr_path:
+                c.execute("UPDATE users SET qr_code_path=? WHERE id=?", (qr_path, row['user_id']))
+                conn.commit()
+                
+                if user and user['email']:
+                    send_checkin_email(
+                        to_email=user['email'],
+                        passenger_name=user['full_name'],
+                        flight_code=row['flight_code'],
+                        flight_date=row['flight_date'],
+                        flight_time=row['flight_time'],
+                        pnr=row['pnr_code'],
+                        seat=row['seat_number'],
+                        gate=row['gate_number'],
+                        qr_path=qr_path
+                    )
+            
+            # ===== TRÍCH XUẤT VECTOR MOBILEFACENET =====
+            c.execute("SELECT face_image_path FROM users WHERE id=?", (row['user_id'],))
+            user_data = c.fetchone()
+            if user_data and user_data['face_image_path']:
+                print(f"🔍 Đang trích xuất vector MobileFaceNet cho user {row['user_id']}")
+                try:
+                    paths = json.loads(user_data['face_image_path'])
+                    if isinstance(paths, str):
+                        paths = [paths]
+                except:
+                    paths = [user_data['face_image_path']]
+                
+                vector = save_face_vector_to_db(row['user_id'], paths)
+                if vector:
+                    print(f"✅ Vector length: {len(vector)}")
+                else:
+                    print(f"❌ Không thể trích xuất vector cho user {row['user_id']}")
+        
+        c.execute("INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)",
+                 (row['user_id'] if row else None, f'checkin_{action}', f'Admin {("duyệt" if action == "approve" else "từ chối")} yêu cầu check-in'))
+        conn.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Đã {("duyệt" if action == "approve" else "từ chối")} yêu cầu',
+            'pnr': row['pnr_code'] if row and action == 'approve' else None,
+            'seat': row['seat_number'] if row and action == 'approve' else None,
+            'gate': row['gate_number'] if row and action == 'approve' else None
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/checkin/request', methods=['POST'])
+def request_checkin():
+    try:
+        user_id = request.form.get('user_id')
+        flight_code = request.form.get('flight_code')
+        flight_date = request.form.get('flight_date')
+        flight_time = request.form.get('flight_time')
+        ticket_type = request.form.get('ticket_type', 'Online có hành lý')
+        luggage_count = request.form.get('luggage_count', 0)
+        luggage_weight = request.form.get('luggage_weight', 0)
+        
+        face_images = request.files.getlist('face_images')
+        
+        if len(face_images) < 3:
+            return jsonify({'error': 'Cần ít nhất 3 ảnh khuôn mặt'}), 400
+        
+        conn = get_db()
+        c = conn.cursor()
+        
+        saved_paths = save_face_images(face_images, user_id)
+        
+        if saved_paths:
+            paths_json = json.dumps(saved_paths)
+            c.execute("UPDATE users SET face_image_path=? WHERE id=?", (paths_json, user_id))
+            conn.commit()
+            print(f"✅ Đã lưu {len(saved_paths)} ảnh cho user {user_id}")
+        
+        c.execute('''INSERT INTO checkin_requests 
+            (user_id, flight_code, flight_date, flight_time, ticket_type, luggage_count, luggage_weight, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+            (user_id, flight_code, flight_date, flight_time, ticket_type, luggage_count, luggage_weight, 'pending'))
+        
+        conn.commit()
+        req_id = c.lastrowid
+        
+        c.execute("INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)",
+                 (user_id, 'request_checkin', 'Gửi yêu cầu check-in thành công'))
+        conn.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Gửi yêu cầu check-in thành công! Vui lòng chờ admin duyệt.',
+            'request_id': req_id
+        }), 201
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+# ==================== USER ====================
+@app.route('/api/user/<int:user_id>/status', methods=['GET'])
+def get_user_status(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE id=?", (user_id,))
+    user = c.fetchone()
+    if not user:
+        return jsonify({'error': 'Không tìm thấy user'}), 404
+    c.execute("SELECT * FROM checkin_requests WHERE user_id=? ORDER BY created_at DESC", (user_id,))
+    requests = c.fetchall()
+    c.execute("SELECT * FROM activity_logs WHERE user_id=? ORDER BY created_at DESC LIMIT 10", (user_id,))
+    logs = c.fetchall()
+    
+    result = {
+        'user': dict(user),
+        'requests': [dict(r) for r in requests],
+        'logs': [dict(l) for l in logs],
+        'status': {
+            'pending_approval': user['status'] == 'pending',
+            'checked_in': bool(user['checked_in']),
+            'gate_passed': bool(user['gate_passed']),
+            'boarded': bool(user['boarded'])
+        }
+    }
+    
+    if user.get('face_image_path'):
+        result['user']['face_image_url'] = f"/api/face_image/{user['id']}"
+    
+    return jsonify(result)
+
+@app.route('/api/user/<int:user_id>/checkin-history', methods=['GET'])
+def get_checkin_history(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM checkin_requests WHERE user_id=? ORDER BY created_at DESC", (user_id,))
+    requests = c.fetchall()
+    return jsonify([dict(r) for r in requests])
+
+@app.route('/api/current_time', methods=['GET'])
+def current_time():
+    now = datetime.now()
+    return jsonify({
+        'time': now.strftime('%H:%M:%S'),
+        'date': now.strftime('%d/%m/%Y'),
+        'datetime': now.strftime('%Y-%m-%d %H:%M:%S'),
+        'day': ['Chủ Nhật','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'][now.weekday()]
+    })
+
+# ==================== FACE VECTOR API ====================
+@app.route('/api/user/<int:user_id>/face-vector', methods=['GET'])
+def get_face_vector(user_id):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT face_encoding FROM users WHERE id=?", (user_id,))
+    row = c.fetchone()
+    if row and row['face_encoding']:
+        try:
+            vector = json.loads(row['face_encoding'])
+            return jsonify({
+                'success': True,
+                'user_id': user_id,
+                'face_vector': vector,
+                'vector_length': len(vector),
+                'algorithm': 'mobilefacenet'
+            })
+        except:
+            return jsonify({'success': False, 'message': 'Lỗi parse vector'}), 500
+    return jsonify({'success': False, 'message': 'Chưa có vector face'}), 404
+
+@app.route('/api/user/compare-face', methods=['POST'])
+def compare_face():
+    """API so sánh vector MobileFaceNet - Dùng cosine similarity"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        face_vector = data.get('face_vector')
+        
+        if not face_vector:
+            return jsonify({'success': False, 'message': 'Thiếu face_vector'}), 400
+        
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT face_encoding FROM users WHERE id=?", (user_id,))
+        row = c.fetchone()
+        
+        if not row or not row['face_encoding']:
+            return jsonify({'success': False, 'message': 'Không tìm thấy vector'}), 404
+        
+        stored_vector = json.loads(row['face_encoding'])
+        
+        # Cosine similarity
+        a = np.array(stored_vector)
+        b = np.array(face_vector)
+        similarity = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+        
+        threshold = 0.5
+        is_match = similarity > threshold
+        
+        confidence = max(0, min(1, similarity))
+        
+        return jsonify({
+            'success': True,
+            'user_id': user_id,
+            'similarity': round(similarity, 4),
+            'threshold': threshold,
+            'is_match': is_match,
+            'confidence': round(confidence, 4),
+            'message': '✅ Khớp' if is_match else '❌ Không khớp'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== GATE PASS API ====================
+@app.route('/api/user/<int:user_id>/gate-pass', methods=['POST'])
+def gate_pass(user_id):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE id=?", (user_id,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'Không tìm thấy user'}), 404
+        if not user['checked_in']:
+            return jsonify({'error': 'Hành khách chưa check-in'}), 400
+        if user['gate_passed']:
+            return jsonify({'error': 'Hành khách đã qua cổng'}), 400
+        
+        c.execute("UPDATE users SET gate_passed=1 WHERE id=?", (user_id,))
+        conn.commit()
+        c.execute("INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)",
+                 (user_id, 'gate_pass', 'Qua cổng thành công'))
+        conn.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Xác nhận qua cổng thành công',
+            'user': dict(user)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ==================== BOARDING API ====================
+@app.route('/api/user/<int:user_id>/board', methods=['POST'])
+def board(user_id):
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE id=?", (user_id,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'Không tìm thấy user'}), 404
+        if not user['gate_passed']:
+            return jsonify({'error': 'Hành khách chưa qua cổng'}), 400
+        if user['boarded']:
+            return jsonify({'error': 'Hành khách đã lên máy bay'}), 400
+        
+        c.execute("UPDATE users SET boarded=1 WHERE id=?", (user_id,))
+        conn.commit()
+        c.execute("INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)",
+                 (user_id, 'board', 'Lên máy bay thành công'))
+        conn.commit()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Xác nhận lên máy bay thành công',
+            'user': dict(user)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    print("🚀 Server đang chạy...")
+    print("📋 Các API:")
+    print("  - /api/fids (GET, POST)")
+    print("  - /api/fids/<id> (GET, PUT, DELETE)")
+    print("  - /api/user/<id>/face-vector (GET)")
+    print("  - /api/user/compare-face (POST)")
+    print("  - /api/user/<id>/gate-pass (POST)")
+    print("  - /api/user/<id>/board (POST)")
+    app.run(host='0.0.0.0', port=5000, debug=True)

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Đăng nhập{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <a href="/" class="btn-back">⬅️ Quay lại</a>
+    <h2>🔐 Đăng nhập</h2>
+    
+    {% if error %}
+    <div class="alert error">{{ error }}</div>
+    {% endif %}
+    
+    <form method="POST" action="/login">
+        <div class="form-group">
+            <label>Tên đăng nhập</label>
+            <input type="text" name="username" required placeholder="admin hoặc username">
+        </div>
+        
+        <div class="form-group">
+            <label>Mật khẩu</label>
+            <input type="password" name="password" required placeholder="••••••••">
+        </div>
+        
+        <button type="submit" class="btn btn-primary" style="width:100%; padding:12px; font-size:16px;">
+            🔑 Đăng nhập
+        </button>
+    </form>
+    
+    <p style="text-align:center; margin-top:15px; color:#888;">
+        Chưa có tài khoản? <a href="/register" style="color:#667eea; font-weight:600;">Đăng ký</a>
+    </p>
+</div>
+{% endblock %}
